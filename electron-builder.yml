@@ -1,0 +1,26 @@
+appId: com.agentshelpme.workspace-orchestrator
+productName: 工作目录编排器
+copyright: Copyright © 2026
+directories:
+  output: dist
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+extraResources:
+  - from: resources
+    to: .
+    filter:
+      - "*.png"
+  - from: scripts
+    to: scripts
+    filter:
+      - list-occupants.ps1
+asar: true
+win:
+  icon: build/icon.png
+  executableName: WorkspaceOrchestrator
+  target:
+    - target: dir
+      arch:
+        - x64

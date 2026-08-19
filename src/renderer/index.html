@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <title>工作目录编排器</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div>
+        <h1>工作目录编排器</h1>
+        <p id="subtitle" class="muted">正在加载…</p>
+      </div>
+      <div class="status-pill" id="app-state">空闲</div>
+    </header>
+
+    <section class="toolbar">
+      <label class="toggle">
+        <input type="checkbox" id="scheduler" />
+        启用自动调度
+      </label>
+      <label class="toggle">
+        <input type="checkbox" id="login" />
+        登录时启动
+      </label>
+      <button type="button" id="catchup">立即补跑</button>
+      <button type="button" id="reload">重新加载配置</button>
+      <button type="button" class="ghost" id="open-config">打开配置</button>
+      <button type="button" class="ghost" id="open-logs">打开日志</button>
+    </section>
+
+    <p id="toast" class="toast hidden"></p>
+    <p id="config-error" class="error hidden"></p>
+
+    <main>
+      <section>
+        <h2>今日计划</h2>
+        <div id="workspaces" class="cards"></div>
+      </section>
+      <section>
+        <h2>最近执行</h2>
+        <div id="runs" class="runs"></div>
+      </section>
+    </main>
+
+    <script type="module" src="./renderer.ts"></script>
+  </body>
+</html>

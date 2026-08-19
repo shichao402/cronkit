@@ -1,0 +1,10 @@
+node_modules/
+dist/
+out/
+*.log
+.DS_Store
+.orch-state/
+self-test-result.json
+fixtures/svn-repo/
+fixtures/wc/
+fixtures/tools-wc/

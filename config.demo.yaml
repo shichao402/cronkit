@@ -1,0 +1,84 @@
+# 本机可跑通的演示配置。路径相对本文件。
+version: 1
+timezone: Asia/Shanghai
+
+runtime:
+  maxConcurrentRuns: 1
+  catchUpPreviousDays: 0
+  retryFailedOnCatchUp: false
+
+schedules:
+  - id: after-midnight
+    description: 每天凌晨后的例行更新与预热
+    cron: "10 2 * * *"
+    workspaceIds:
+      - trunk-client
+      - tools-scripts
+
+workspaces:
+  - id: trunk-client
+    name: 主干客户端（演示）
+    path: fixtures/wc
+    steps:
+      - type: svn-update
+        strategy: follow-latest
+        timeout: 2h
+        retry: 1
+      - type: unity-warmup
+        timeout: 90m
+        nographics: false
+        executeMethod: null
+        continueOnError: false
+
+  - id: release-1.0
+    name: 发布分支（演示，仅手动）
+    path: fixtures/wc
+    steps:
+      - type: svn-update
+        strategy: manual
+        timeout: 2h
+      - type: unity-warmup
+        timeout: 90m
+        nographics: false
+
+  - id: tools-scripts
+    name: 工具脚本仓（演示）
+    path: fixtures/tools-wc
+    steps:
+      - type: svn-update
+        strategy: follow-latest
+        timeout: 30m
+      - type: script
+        command: "powershell"
+        args:
+          - "-NoProfile"
+          - "-File"
+          - "scripts/nightly-check.ps1"
+        timeout: 15m
+        continueOnError: true
+
+reporting:
+  enabled: false
+  adapter: wechat-bot
+  endpointEnv: WECHAT_BOT_ENDPOINT
+  on:
+    - run-finished
+    - daily-summary
+
+brain:
+  enabled: false
+  provider: codebuddy
+  model: claude-4.5
+  maxTurns: 8
+  permissionMode: default
+  allowedTools:
+    - Read
+    - Grep
+    - Glob
+  allowedCommands:
+    - runWorkspace
+    - cancelRun
+    - summarizeDay
+  requireConfirmationFor:
+    - runWorkspace
+    - cancelRun
