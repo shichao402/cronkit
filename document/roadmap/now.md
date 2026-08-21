@@ -7,6 +7,7 @@
 - 用 `npm run dist` 验证打包后的任务栏固定图标与跳转列表名称（`WorkspaceOrchestrator` / 工作目录编排器），不以 `npm start` 的固定项为准。
 - 保持 `document/` 三块同步：目录或分层一变，先改 architecture，决策则补 ADR。
 - 仪表盘可进一步改成「按任务分组」列表（当前仍是 target 扁平行 + task 名芯片）。
+- 准备接入 relkit（对接方式与范围待定）。
 
 ## 已知缺口
 
