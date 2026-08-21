@@ -12,6 +12,7 @@
     "build": "electron-vite build",
     "dist": "electron-vite build && electron-builder --win",
     "self-test": "electron-vite build && electron . --self-test",
+    "ui-preview": "vite --config tools/ui-preview/vite.config.ts",
     "cli": "tsx src/cli.ts",
     "validate": "tsx src/cli.ts validate",
     "status": "tsx src/cli.ts status"

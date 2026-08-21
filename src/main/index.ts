@@ -1,18 +1,25 @@
-import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, Tray, nativeImage } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, Tray, nativeImage, nativeTheme } from "electron";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { ensureUserConfig } from "../core/bootstrap";
 import { Orchestrator } from "../core/orchestrator";
 import { defaultDataDir } from "../core/paths";
 import { installOrUpdateToolset, rememberToolsetSha } from "../core/toolset";
-import type { IconTheme, Snapshot, TrayState } from "../shared/types";
+import type { ResolvedTheme, Snapshot, ThemePref, TrayState } from "../shared/types";
 import { openPathReliable } from "./open-path";
 
 let tray: Tray | undefined;
 let window: BrowserWindow | undefined;
 let orch: Orchestrator;
 let quitting = false;
-let appliedTheme: IconTheme | undefined;
+let appliedTheme: ResolvedTheme | undefined;
+let appliedPref: ThemePref | undefined;
+
+// Must match the --bg token per theme in renderer/styles.css, or the window flashes on load.
+const WINDOW_BG: Record<ResolvedTheme, string> = {
+  dark: "#121417",
+  light: "#f4f6f8",
+};
 
 function resource(...parts: string[]): string {
   if (app.isPackaged) {
@@ -21,8 +28,8 @@ function resource(...parts: string[]): string {
   return path.join(app.getAppPath(), "resources", ...parts);
 }
 
-function currentTheme(): IconTheme {
-  return orch?.store.data.iconTheme ?? "light";
+function currentTheme(): ResolvedTheme {
+  return orch?.resolvedTheme() ?? "dark";
 }
 
 // Scheduler off is not the same thing as nothing to do, so the tray tells them apart.
@@ -36,7 +43,7 @@ function trayStateOf(snap: Snapshot): TrayState {
   return snap.schedulerEnabled ? "idle" : "paused";
 }
 
-function trayIcon(theme: IconTheme, state: TrayState) {
+function trayIcon(theme: ResolvedTheme, state: TrayState) {
   const image = nativeImage.createFromPath(resource(`tray-${theme}-${state}.png`));
   if (image.isEmpty()) {
     return nativeImage.createFromPath(resource("tray-light-idle.png"));
@@ -44,7 +51,7 @@ function trayIcon(theme: IconTheme, state: TrayState) {
   return image;
 }
 
-function appIcon(theme: IconTheme) {
+function appIcon(theme: ResolvedTheme) {
   const image = nativeImage.createFromPath(resource(`app-${theme}.png`));
   if (image.isEmpty()) {
     return nativeImage.createFromPath(resource("app-light.png"));
@@ -63,7 +70,7 @@ function createWindow(): BrowserWindow {
     minWidth: 920,
     minHeight: 600,
     title: "工作目录编排器",
-    backgroundColor: "#121417",
+    backgroundColor: WINDOW_BG[currentTheme()],
     autoHideMenuBar: true,
     icon: appIcon(currentTheme()),
     webPreferences: {
@@ -92,7 +99,7 @@ function pushSnapshot(): void {
   if (window && !window.isDestroyed()) {
     window.webContents.send("snapshot", snap);
   }
-  applyIcons(snap);
+  applyTheme(snap);
 }
 
 const TRAY_LABELS: Record<TrayState, string> = {
@@ -102,16 +109,26 @@ const TRAY_LABELS: Record<TrayState, string> = {
   paused: "已停用",
 };
 
-function applyIcons(snap: Snapshot): void {
+const THEME_LABELS: Record<ThemePref, string> = {
+  system: "跟随系统",
+  light: "浅色",
+  dark: "深色",
+};
+
+function applyTheme(snap: Snapshot): void {
   const state = trayStateOf(snap);
-  tray?.setImage(trayIcon(snap.iconTheme, state));
+  tray?.setImage(trayIcon(snap.resolvedTheme, state));
   tray?.setToolTip(`工作目录编排器 · ${TRAY_LABELS[state]}`);
-  if (snap.iconTheme !== appliedTheme) {
-    appliedTheme = snap.iconTheme;
-    applyTrayMenu();
+  if (snap.resolvedTheme !== appliedTheme) {
+    appliedTheme = snap.resolvedTheme;
     if (window && !window.isDestroyed()) {
-      window.setIcon(appIcon(snap.iconTheme));
+      window.setIcon(appIcon(snap.resolvedTheme));
+      window.setBackgroundColor(WINDOW_BG[snap.resolvedTheme]);
     }
+  }
+  if (snap.theme !== appliedPref) {
+    appliedPref = snap.theme;
+    applyTrayMenu();
   }
 }
 
@@ -185,27 +202,19 @@ function applyTrayMenu(): void {
   if (!tray) {
     return;
   }
-  const theme = currentTheme();
+  const pref = orch.store.data.theme;
   const menu = Menu.buildFromTemplate([
     { label: "打开面板", click: () => showWindow() },
     { label: "立即补跑", click: () => orch.catchUpNow() },
     { type: "separator" },
     {
-      label: "图标主题",
-      submenu: [
-        {
-          label: "浅色",
-          type: "radio",
-          checked: theme === "light",
-          click: () => orch.setIconTheme("light"),
-        },
-        {
-          label: "深色",
-          type: "radio",
-          checked: theme === "dark",
-          click: () => orch.setIconTheme("dark"),
-        },
-      ],
+      label: "主题",
+      submenu: (["system", "light", "dark"] as ThemePref[]).map((value) => ({
+        label: THEME_LABELS[value],
+        type: "radio" as const,
+        checked: pref === value,
+        click: () => orch.setTheme(value),
+      })),
     },
     { type: "separator" },
     {
@@ -251,6 +260,17 @@ if (!gotLock) {
     const dataDir = defaultDataDir();
     const configPath = ensureUserConfig(dataDir);
     orch = new Orchestrator({ configPath, dataDir });
+    orch.systemTheme = nativeTheme.shouldUseDarkColors ? "dark" : "light";
+    nativeTheme.on("updated", () => {
+      const next = nativeTheme.shouldUseDarkColors ? "dark" : "light";
+      if (next === orch.systemTheme) {
+        return;
+      }
+      orch.systemTheme = next;
+      if (orch.store.data.theme === "system") {
+        pushSnapshot();
+      }
+    });
     const login = app.getLoginItemSettings();
     orch.openAtLogin = login.openAtLogin;
     orch.on("change", () => pushSnapshot());
@@ -306,8 +326,8 @@ if (!gotLock) {
     ipcMain.handle("setSchedulerEnabled", (_e, enabled: boolean) => {
       orch.setSchedulerEnabled(enabled);
     });
-    ipcMain.handle("setIconTheme", (_e, theme: IconTheme) => {
-      orch.setIconTheme(theme === "dark" ? "dark" : "light");
+    ipcMain.handle("setTheme", (_e, theme: ThemePref) => {
+      orch.setTheme(theme === "dark" || theme === "light" ? theme : "system");
     });
     ipcMain.handle("updateToolset", async (_e, id: string) => {
       const info = await installOrUpdateToolset(id, orch.dataDir);

@@ -1,0 +1,26 @@
+/* Dev-only chrome. Must not leak into the Electron panel. */
+
+#cronkit-ui-preview-banner {
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: #6b21a8;
+  color: #f3e8ff;
+  font: 12px/1.4 "Segoe UI", "Microsoft YaHei UI", sans-serif;
+}
+
+#cronkit-ui-preview-banner code {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.28);
+  font-family: Consolas, "Cascadia Mono", monospace;
+  font-size: 11px;
+}
+
+.app {
+  height: calc(100vh - 28px);
+}

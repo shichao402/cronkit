@@ -4,11 +4,12 @@ import path from "node:path";
 import type {
   ConfigEditorPayload,
   EditorDraft,
-  IconTheme,
+  ResolvedTheme,
   RunRecord,
   RunStatus,
   Snapshot,
   StepRecord,
+  ThemePref,
   Trigger,
 } from "../shared/types";
 import {
@@ -55,6 +56,8 @@ export class Orchestrator extends TypedEmitter {
   private readonly pathLocks = new Set<string>();
   private timer?: NodeJS.Timeout;
   openAtLogin = false;
+  /** Fed by the main process from `nativeTheme`; core stays free of electron imports. */
+  systemTheme: ResolvedTheme = "dark";
 
   constructor(options: { configPath: string; dataDir: string }) {
     super();
@@ -153,10 +156,15 @@ export class Orchestrator extends TypedEmitter {
     this.emitChange();
   }
 
-  setIconTheme(theme: IconTheme): void {
-    this.store.data.iconTheme = theme;
+  setTheme(theme: ThemePref): void {
+    this.store.data.theme = theme;
     this.store.flush();
     this.emitChange();
+  }
+
+  resolvedTheme(): ResolvedTheme {
+    const pref = this.store.data.theme;
+    return pref === "system" ? this.systemTheme : pref;
   }
 
   snapshot(): Snapshot {
@@ -178,7 +186,8 @@ export class Orchestrator extends TypedEmitter {
       appState,
       schedulerEnabled: this.store.data.schedulerEnabled,
       openAtLogin: this.openAtLogin,
-      iconTheme: this.store.data.iconTheme,
+      theme: this.store.data.theme,
+      resolvedTheme: this.resolvedTheme(),
       exitWarnsRunning: runningCount > 0,
       toolsets: listInstalledToolsets(this.dataDir),
       workspaces: plan.map((item) => {

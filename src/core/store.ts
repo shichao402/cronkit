@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { statePathIn } from "./paths";
-import type { IconTheme, RunRecord, RunStatus } from "../shared/types";
+import type { RunRecord, RunStatus, ThemePref } from "../shared/types";
 
 export type PersistState = {
   version: 1;
   schedulerEnabled: boolean;
-  iconTheme: IconTheme;
+  theme: ThemePref;
   keyed: Record<string, { runId: string; status: RunStatus }>;
   runs: RunRecord[];
 };
@@ -14,10 +14,12 @@ export type PersistState = {
 const EMPTY: PersistState = {
   version: 1,
   schedulerEnabled: false,
-  iconTheme: "light",
+  theme: "system",
   keyed: {},
   runs: [],
 };
+
+const THEMES: ThemePref[] = ["system", "light", "dark"];
 
 export class Store {
   private readonly file: string;
@@ -89,14 +91,20 @@ export class Store {
       return structuredClone(EMPTY);
     }
     try {
-      const parsed = JSON.parse(readFileSync(this.file, "utf8")) as PersistState;
+      const parsed = JSON.parse(readFileSync(this.file, "utf8")) as PersistState & { iconTheme?: string };
       if (parsed.version !== 1) {
         return structuredClone(EMPTY);
       }
       parsed.keyed ??= {};
       parsed.runs ??= [];
       parsed.schedulerEnabled ??= false;
-      parsed.iconTheme = parsed.iconTheme === "dark" ? "dark" : "light";
+      // `iconTheme` predates full UI theming; carry the old choice over once, then drop it.
+      parsed.theme = THEMES.includes(parsed.theme)
+        ? parsed.theme
+        : parsed.iconTheme === "dark" || parsed.iconTheme === "light"
+          ? parsed.iconTheme
+          : EMPTY.theme;
+      delete parsed.iconTheme;
       return parsed;
     } catch {
       return structuredClone(EMPTY);

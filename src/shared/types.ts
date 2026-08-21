@@ -9,7 +9,11 @@ export type RunStatus =
 
 export type Trigger = "schedule" | "catch-up" | "manual";
 
-export type IconTheme = "light" | "dark";
+/** What the user picked in settings. */
+export type ThemePref = "system" | "light" | "dark";
+
+/** What actually renders — `system` is resolved against the OS before it gets here. */
+export type ResolvedTheme = "light" | "dark";
 
 export type TrayState = "idle" | "running" | "failed" | "paused";
 
@@ -61,7 +65,8 @@ export type Snapshot = {
   appState: "idle" | "running" | "failed";
   schedulerEnabled: boolean;
   openAtLogin: boolean;
-  iconTheme: IconTheme;
+  theme: ThemePref;
+  resolvedTheme: ResolvedTheme;
   exitWarnsRunning?: boolean;
   toolsets?: ToolsetView[];
   workspaces: WorkspaceView[];

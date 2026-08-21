@@ -10,10 +10,12 @@ cronkit/
   src/
     main/                   Electron 主进程
     preload/
-    renderer/               面板
+    renderer/               面板（正式入口；不要把预览/mock 放这里）
     core/                   编排；禁止依赖 electron
     cli.ts
     shared/                 跨进程类型
+  tools/
+    ui-preview/             浏览器 mock 面板；独立 Vite，不进 Electron 打包
   design/icon/              图标源稿（大图）
   resources/                开发态 / extraResources 用的 png
   build/                    electron-builder 打包资源（含 win.icon）
@@ -33,3 +35,4 @@ cronkit/
 | PowerShell / 安装脚本 | `scripts/` |
 | 调度与步骤实现 | `src/core/` |
 | 窗口、托盘、IPC | `src/main/` |
+| 浏览器 mock 面板 | `tools/ui-preview/`（`npm run ui-preview`） |

@@ -6,81 +6,203 @@
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <header class="top">
-      <div>
-        <h1>工作目录编排器</h1>
-        <p id="subtitle" class="muted path-link" title="点击打开配置文件">正在加载…</p>
-      </div>
-      <div class="header-right">
-        <nav class="tabs" role="tablist">
-          <button type="button" class="tab active" data-view="dash">仪表盘</button>
-          <button type="button" class="tab" data-view="config">配置</button>
-        </nav>
-        <div class="status-pill" id="app-state">空闲</div>
-      </div>
-    </header>
-
-    <p id="toast" class="toast hidden"></p>
-    <p id="config-error" class="error hidden"></p>
-    <p id="exit-warn" class="error hidden">有任务正在运行：退出程序会中断当前任务。</p>
-
-    <section id="view-dash">
-      <section class="toolbar">
-        <label class="toggle">
-          <input type="checkbox" id="scheduler" />
-          启用自动调度
-        </label>
-        <label class="toggle">
-          <input type="checkbox" id="login" />
-          登录时启动
-        </label>
-        <label class="toggle">
-          图标主题
-          <select id="icon-theme">
-            <option value="light">浅色</option>
-            <option value="dark">深色</option>
-          </select>
-        </label>
-        <button type="button" id="catchup">立即补跑</button>
-        <button type="button" class="ghost" id="open-logs">打开日志</button>
-      </section>
-
-      <div class="dash-grid">
-        <div class="dash-main">
-          <section>
-            <h2>今日计划</h2>
-            <div id="workspaces" class="cards"></div>
-          </section>
-          <section>
-            <h2>最近执行</h2>
-            <div id="runs" class="runs"></div>
-          </section>
+    <div class="app">
+      <aside class="sidenav">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">CK</span>
+          <span class="brand-text">
+            <strong>Cronkit</strong>
+            <small>工作目录编排器</small>
+          </span>
         </div>
-        <aside>
-          <section>
-            <h2>Toolset</h2>
-            <div id="toolsets" class="cards"></div>
-          </section>
-        </aside>
-      </div>
-    </section>
 
-    <section id="view-config" class="hidden">
-      <section class="toolbar config-bar">
-        <span id="config-dirty" class="muted">未修改</span>
-        <button type="button" id="config-save">保存并生效</button>
-        <button type="button" class="ghost" id="config-reload-disk">从磁盘重新加载</button>
-        <button type="button" class="ghost" id="open-config">用外部编辑器打开</button>
-      </section>
-      <nav class="subtabs" id="config-subtabs">
-        <button type="button" class="tab active" data-panel="workspaces">工作目录</button>
-        <button type="button" class="tab" data-panel="schedules">计划</button>
-        <button type="button" class="tab" data-panel="runtime">运行时</button>
-        <button type="button" class="tab" data-panel="yaml">YAML</button>
-      </nav>
-      <p id="config-hint" class="hint hidden"></p>
-      <div id="config-body"></div>
-    </section>
+        <div class="nav-state" id="app-state" title="当前状态">
+          <span class="state-dot"></span>
+          <span class="state-label">空闲</span>
+        </div>
+
+        <nav class="nav" id="nav" role="tablist" aria-label="主导航">
+          <button type="button" class="nav-item is-active" role="tab" data-view="dash" aria-selected="true">
+            <span class="nav-glyph" data-icon="gauge"></span>
+            <span class="nav-label">仪表盘</span>
+          </button>
+          <button type="button" class="nav-item" role="tab" data-view="config" aria-selected="false">
+            <span class="nav-glyph" data-icon="sliders"></span>
+            <span class="nav-label">配置</span>
+            <span class="nav-dot hidden" id="nav-dirty" title="有未保存修改"></span>
+          </button>
+          <button type="button" class="nav-item" role="tab" data-view="settings" aria-selected="false">
+            <span class="nav-glyph" data-icon="gear"></span>
+            <span class="nav-label">设置</span>
+          </button>
+        </nav>
+
+        <div class="nav-foot">
+          <button type="button" class="nav-file" id="config-link" title="用外部编辑器打开配置文件">
+            <span class="nav-file-key">
+              <span class="nav-glyph" data-icon="terminal"></span>
+              配置文件
+            </span>
+            <span class="nav-file-value" id="subtitle">正在加载…</span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="content">
+        <div id="banners" class="banners" aria-live="polite"></div>
+
+        <section id="view-dash" class="view">
+          <header class="page-head">
+            <div class="page-title">
+              <h1>仪表盘</h1>
+              <p class="page-sub" id="dash-sub">正在加载…</p>
+            </div>
+            <div class="page-actions">
+              <button type="button" class="btn" id="catchup" data-icon="refresh">立即补跑</button>
+              <button type="button" class="btn btn-quiet" id="open-logs" data-icon="folder">日志目录</button>
+            </div>
+          </header>
+
+          <div class="stats" id="stats"></div>
+
+          <section class="block">
+            <div class="block-head">
+              <h2>今日计划</h2>
+              <span class="block-count" id="ws-count"></span>
+            </div>
+            <div class="rows" id="workspaces"></div>
+          </section>
+
+          <section class="block">
+            <div class="block-head">
+              <h2>最近执行</h2>
+              <div class="seg" id="run-filter" role="group" aria-label="筛选执行记录">
+                <button type="button" data-filter="all" aria-pressed="true">全部</button>
+                <button type="button" data-filter="failed" aria-pressed="false">仅失败</button>
+              </div>
+            </div>
+            <div class="rows" id="runs"></div>
+          </section>
+
+          <section class="block">
+            <div class="block-head">
+              <h2>工具集</h2>
+            </div>
+            <div class="toolset-grid" id="toolsets"></div>
+          </section>
+        </section>
+
+        <section id="view-config" class="view hidden">
+          <header class="page-head">
+            <div class="page-title">
+              <h1>配置</h1>
+              <p class="page-sub">保存前会做完整校验，校验失败不会写盘</p>
+            </div>
+            <div class="page-actions">
+              <button type="button" class="btn btn-quiet" id="open-config" data-icon="external">外部编辑器</button>
+            </div>
+          </header>
+
+          <nav class="seg seg-wide" id="config-subtabs" role="tablist" aria-label="配置分区">
+            <button type="button" data-panel="workspaces" aria-pressed="true">工作目录</button>
+            <button type="button" data-panel="schedules" aria-pressed="false">计划</button>
+            <button type="button" data-panel="runtime" aria-pressed="false">运行时</button>
+            <button type="button" data-panel="yaml" aria-pressed="false">YAML</button>
+          </nav>
+
+          <p id="config-hint" class="note note-warn hidden"></p>
+          <div id="config-body"></div>
+
+          <div class="action-bar">
+            <span class="dirty" id="config-dirty">未修改</span>
+            <span class="spacer"></span>
+            <button type="button" class="btn btn-quiet" id="config-reload-disk" data-icon="refresh">
+              从磁盘重新加载
+            </button>
+            <button type="button" class="btn btn-primary" id="config-save" data-icon="check">
+              保存并生效<kbd>Ctrl S</kbd>
+            </button>
+          </div>
+        </section>
+
+        <section id="view-settings" class="view hidden">
+          <header class="page-head">
+            <div class="page-title">
+              <h1>设置</h1>
+              <p class="page-sub">外观、调度行为与文件位置</p>
+            </div>
+          </header>
+
+          <div class="settings">
+            <section class="setting-group">
+              <h2>外观</h2>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <div class="name">主题</div>
+                  <div class="desc">同时影响界面配色、托盘图标和窗口图标</div>
+                </div>
+                <div class="setting-control seg" id="theme-picker" role="group" aria-label="主题">
+                  <button type="button" data-theme="system" aria-pressed="false">跟随系统</button>
+                  <button type="button" data-theme="light" aria-pressed="false">浅色</button>
+                  <button type="button" data-theme="dark" aria-pressed="false">深色</button>
+                </div>
+              </div>
+            </section>
+
+            <section class="setting-group">
+              <h2>调度</h2>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <div class="name">启用自动调度</div>
+                  <div class="desc">关闭后仅保留手动运行，计划任务不会触发</div>
+                </div>
+                <label class="setting-control switch">
+                  <input type="checkbox" id="scheduler" />
+                  <span class="track"></span>
+                </label>
+              </div>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <div class="name">登录时启动</div>
+                  <div class="desc">开机登录后静默启动并驻留托盘</div>
+                </div>
+                <label class="setting-control switch">
+                  <input type="checkbox" id="login" />
+                  <span class="track"></span>
+                </label>
+              </div>
+            </section>
+
+            <section class="setting-group" id="settings-paths">
+              <h2>文件位置</h2>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <div class="name">配置文件</div>
+                  <div class="desc mono" id="path-config">—</div>
+                </div>
+                <button type="button" class="btn btn-quiet btn-sm setting-control" data-open="config">打开</button>
+              </div>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <div class="name">日志目录</div>
+                  <div class="desc">每次运行的完整输出都写在这里</div>
+                </div>
+                <button type="button" class="btn btn-quiet btn-sm setting-control" data-open="logs">打开</button>
+              </div>
+              <div class="setting-row">
+                <div class="setting-text">
+                  <div class="name">数据目录</div>
+                  <div class="desc mono" id="path-data">—</div>
+                </div>
+                <button type="button" class="btn btn-quiet btn-sm setting-control" data-open="data">打开</button>
+              </div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <div class="toasts" id="toasts" aria-live="polite"></div>
 
     <script type="module" src="./renderer.ts"></script>
   </body>

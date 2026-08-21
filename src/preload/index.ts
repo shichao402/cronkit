@@ -1,5 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { ConfigEditorPayload, EditorDraft, IconTheme, Snapshot } from "../shared/types";
+import type { ConfigEditorPayload, EditorDraft, Snapshot, ThemePref } from "../shared/types";
 
 const api = {
   getSnapshot: (): Promise<Snapshot> => ipcRenderer.invoke("getSnapshot"),
@@ -18,7 +18,7 @@ const api = {
   openDataDir: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("openDataDir"),
   setOpenAtLogin: (enabled: boolean) => ipcRenderer.invoke("setOpenAtLogin", enabled),
   setSchedulerEnabled: (enabled: boolean) => ipcRenderer.invoke("setSchedulerEnabled", enabled),
-  setIconTheme: (theme: IconTheme) => ipcRenderer.invoke("setIconTheme", theme),
+  setTheme: (theme: ThemePref) => ipcRenderer.invoke("setTheme", theme),
   updateToolset: (id: string): Promise<Snapshot> => ipcRenderer.invoke("updateToolset", id),
   onSnapshot: (handler: (snapshot: Snapshot) => void): (() => void) => {
     const listener = (_event: unknown, snapshot: Snapshot): void => handler(snapshot);

@@ -1,10 +1,10 @@
-import type { ConfigEditorPayload, EditorDraft, IconTheme, Snapshot } from "../shared/types";
+import type { ConfigEditorPayload, EditorDraft, Snapshot, ThemePref } from "../shared/types";
 
 export type DesktopApi = {
   getSnapshot: () => Promise<Snapshot>;
-  runWorkspace: (id: string) => Promise<unknown>;
-  cancelRun: (id: string) => Promise<unknown>;
-  catchUp: () => Promise<unknown>;
+  runWorkspace: (id: string) => Promise<Snapshot>;
+  cancelRun: (id: string) => Promise<void>;
+  catchUp: () => Promise<Snapshot>;
   reloadConfig: () => Promise<Snapshot>;
   getConfigEditor: () => Promise<ConfigEditorPayload>;
   validateConfig: (text: string) => Promise<{ ok: boolean; error?: string }>;
@@ -14,9 +14,9 @@ export type DesktopApi = {
   openConfig: () => Promise<{ ok: boolean; error?: string }>;
   openLogs: () => Promise<{ ok: boolean; error?: string }>;
   openDataDir: () => Promise<{ ok: boolean; error?: string }>;
-  setOpenAtLogin: (enabled: boolean) => Promise<unknown>;
-  setSchedulerEnabled: (enabled: boolean) => Promise<unknown>;
-  setIconTheme: (theme: IconTheme) => Promise<unknown>;
+  setOpenAtLogin: (enabled: boolean) => Promise<void>;
+  setSchedulerEnabled: (enabled: boolean) => Promise<void>;
+  setTheme: (theme: ThemePref) => Promise<void>;
   updateToolset: (id: string) => Promise<Snapshot>;
   onSnapshot: (handler: (snapshot: Snapshot) => void) => () => void;
 };

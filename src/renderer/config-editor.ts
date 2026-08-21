@@ -7,11 +7,14 @@ import type {
   ToolsetView,
 } from "../shared/types";
 import { draftToYaml } from "../shared/draft-yaml";
+import { escapeHtml } from "./format";
+import { icon } from "./icons";
 
 type Host = {
   api: NonNullable<Window["api"]>;
   toast: (message: string, fail?: boolean) => void;
   onSaved: () => Promise<void>;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 const CRON_PRESETS: Array<{ label: string; cron: string }> = [
@@ -54,11 +57,17 @@ export function bindConfigEditor(options: Host): void {
       yamlText = draftToYaml(draft);
     }
     panel = next;
-    $("config-subtabs").querySelectorAll(".tab").forEach((btn) => {
-      btn.classList.toggle("active", btn.getAttribute("data-panel") === panel);
-    });
+    syncSubtabs();
     render();
   });
+}
+
+function syncSubtabs(): void {
+  $("config-subtabs")
+    .querySelectorAll<HTMLButtonElement>("button[data-panel]")
+    .forEach((btn) => {
+      btn.setAttribute("aria-pressed", String(btn.dataset.panel === panel));
+    });
 }
 
 export async function openConfigEditor(workspaceId?: string): Promise<void> {
@@ -100,7 +109,11 @@ function markDirty(): void {
 }
 
 function updateDirtyLabel(): void {
-  $("config-dirty").textContent = dirty ? "有未保存修改" : "未修改";
+  const el = $("config-dirty");
+  el.textContent = dirty ? "有未保存修改" : "未修改";
+  el.classList.toggle("is-dirty", dirty);
+  ($("config-save") as HTMLButtonElement).disabled = !dirty;
+  host.onDirtyChange?.(dirty);
 }
 
 function showHint(text: string): void {
@@ -116,9 +129,7 @@ function showHint(text: string): void {
 
 function render(): void {
   updateDirtyLabel();
-  $("config-subtabs").querySelectorAll(".tab").forEach((btn) => {
-    btn.classList.toggle("active", btn.getAttribute("data-panel") === panel);
-  });
+  syncSubtabs();
   if (panel === "yaml" || !draft) {
     renderYaml();
     return;
@@ -137,9 +148,12 @@ function render(): void {
 function renderYaml(): void {
   $("config-body").innerHTML = `
     <div class="form">
-      <div class="field">
-        <label>直接编辑 YAML。保存前会做完整校验；校验失败不会写盘。</label>
-        <textarea id="config-yaml" class="yaml" spellcheck="false">${escapeHtml(yamlText)}</textarea>
+      <div class="form-card">
+        <div class="field">
+          <label>配置文件全文</label>
+          <textarea id="config-yaml" class="yaml" spellcheck="false">${escapeHtml(yamlText)}</textarea>
+        </div>
+        <p class="form-note">在 YAML 模式下改动后，需要先保存或从磁盘重新加载，才能切回表单模式。</p>
       </div>
     </div>`;
   $("config-yaml").addEventListener("input", (event) => {
@@ -154,25 +168,29 @@ function renderRuntime(): void {
     return;
   }
   $("config-body").innerHTML = `
-    <div class="form" style="max-width:520px">
-      <div class="field">
-        <label>时区</label>
-        <input id="rt-tz" value="${escapeHtml(draft.timezone)}" />
-      </div>
-      <div class="field-row">
+    <div class="form" style="max-width:560px">
+      <div class="form-card">
+        <h2>调度</h2>
         <div class="field">
-          <label>最大并发</label>
-          <input id="rt-conc" type="number" min="1" value="${draft.runtime.maxConcurrentRuns}" />
+          <label>时区</label>
+          <input id="rt-tz" value="${escapeHtml(draft.timezone)}" />
+          <p class="form-note">IANA 时区名，例如 Asia/Shanghai。cron 表达式按这个时区解析。</p>
         </div>
-        <div class="field">
-          <label>补跑回溯天数</label>
-          <input id="rt-catch" type="number" min="0" value="${draft.runtime.catchUpPreviousDays}" />
+        <div class="field-row">
+          <div class="field">
+            <label>最大并发</label>
+            <input id="rt-conc" type="number" min="1" value="${draft.runtime.maxConcurrentRuns}" />
+          </div>
+          <div class="field">
+            <label>补跑回溯天数</label>
+            <input id="rt-catch" type="number" min="0" value="${draft.runtime.catchUpPreviousDays}" />
+          </div>
         </div>
+        <label class="check">
+          <input id="rt-retry" type="checkbox" ${draft.runtime.retryFailedOnCatchUp ? "checked" : ""} />
+          补跑时重试失败任务
+        </label>
       </div>
-      <label class="check">
-        <input id="rt-retry" type="checkbox" ${draft.runtime.retryFailedOnCatchUp ? "checked" : ""} />
-        补跑时重试失败任务
-      </label>
     </div>`;
   $("rt-tz").addEventListener("input", (e) => {
     draft!.timezone = (e.target as HTMLInputElement).value;
@@ -211,35 +229,40 @@ function renderSchedules(): void {
   const checks = draft.workspaces
     .map((ws) => {
       const on = current?.workspaceIds.includes(ws.id);
-      return `<label class="check"><input type="checkbox" data-ws="${escapeHtml(ws.id)}" ${on ? "checked" : ""} /> ${escapeHtml(ws.name)} <span class="muted">(${escapeHtml(ws.id)})</span></label>`;
+      return `<label class="check"><input type="checkbox" data-ws="${escapeHtml(ws.id)}" ${on ? "checked" : ""} /> ${escapeHtml(ws.name)} <span class="muted">${escapeHtml(ws.id)}</span></label>`;
     })
     .join("");
   const presets = CRON_PRESETS.map(
-    (item) => `<button type="button" class="small" data-cron="${escapeHtml(item.cron)}">${escapeHtml(item.label)}</button>`,
+    (item) =>
+      `<button type="button" class="btn btn-sm btn-quiet" data-cron="${escapeHtml(item.cron)}">${escapeHtml(item.label)}</button>`,
   ).join("");
 
   $("config-body").innerHTML = `
     <div class="editor-split">
       <div class="list-col">
-        ${list || `<p class="muted">还没有计划</p>`}
-        <button type="button" class="small" id="add-schedule">新增计划</button>
+        ${list || `<p class="form-note">还没有计划</p>`}
+        <button type="button" class="btn btn-sm btn-quiet list-add" id="add-schedule">${icon("plus")}新增计划</button>
       </div>
       <div class="form">
         ${
           current
             ? `
-          <div class="field-row">
-            <div class="field"><label>ID</label><input id="sch-id" value="${escapeHtml(current.id)}" /></div>
-            <div class="field"><label>Cron</label><input id="sch-cron" value="${escapeHtml(current.cron)}" /></div>
+          <div class="form-card">
+            <div class="field-row">
+              <div class="field"><label>计划 ID</label><input id="sch-id" value="${escapeHtml(current.id)}" /></div>
+              <div class="field"><label>Cron 表达式</label><input id="sch-cron" class="mono" value="${escapeHtml(current.cron)}" /></div>
+            </div>
+            <div class="chip-row">${presets}</div>
+            <div class="field"><label>说明</label><input id="sch-desc" value="${escapeHtml(current.description ?? "")}" placeholder="这个计划做什么" /></div>
           </div>
-          <div class="field"><label>说明</label><input id="sch-desc" value="${escapeHtml(current.description ?? "")}" /></div>
-          <div class="row actions">${presets}</div>
-          <h2>绑定工作目录</h2>
-          ${checks}
-          <div class="row actions">
-            <button type="button" class="danger small" id="del-schedule">删除此计划</button>
+          <div class="form-card">
+            <h2>绑定工作目录</h2>
+            <div class="checks">${checks || `<p class="form-note">还没有工作目录可以绑定</p>`}</div>
+          </div>
+          <div class="chip-row">
+            <button type="button" class="btn btn-sm btn-danger" id="del-schedule">${icon("trash")}删除此计划</button>
           </div>`
-            : `<p class="muted">选择或新增一个计划</p>`
+            : `<div class="form-card"><p class="form-note">选择左侧的计划，或新增一个。</p></div>`
         }
       </div>
     </div>`;
@@ -341,7 +364,7 @@ function renderWorkspaces(): void {
     <div class="editor-split">
       <div class="list-col">
         ${list}
-        <button type="button" class="small" id="add-ws">新增工作目录</button>
+        <button type="button" class="btn btn-sm btn-quiet list-add" id="add-ws">${icon("plus")}新增工作目录</button>
       </div>
       <div id="ws-form" class="form"></div>
     </div>`;
@@ -394,24 +417,32 @@ function renderWorkspaceForm(current: EditorWorkspace): void {
     .join("");
 
   $("ws-form").innerHTML = `
-    <div class="field-row">
-      <div class="field"><label>显示名称</label><input id="ws-name" value="${escapeHtml(current.name)}" /></div>
-      <div class="field"><label>ID</label><input id="ws-id" value="${escapeHtml(current.id)}" /></div>
+    <div class="form-card">
+      <div class="field-row">
+        <div class="field"><label>显示名称</label><input id="ws-name" value="${escapeHtml(current.name)}" /></div>
+        <div class="field"><label>工作目录 ID</label><input id="ws-id" class="mono" value="${escapeHtml(current.id)}" /></div>
+      </div>
+      <div class="path-row">
+        <div class="field"><label>本地路径</label><input id="ws-path" class="mono" value="${escapeHtml(current.path)}" /></div>
+        <button type="button" class="btn btn-quiet" id="ws-browse">${icon("folder")}浏览…</button>
+      </div>
+      <label class="check">
+        <input id="ws-once" type="checkbox" ${current.oncePerDay ? "checked" : ""} />
+        同一天只自动跑一次
+      </label>
     </div>
-    <div class="path-row">
-      <div class="field"><label>本地路径</label><input id="ws-path" value="${escapeHtml(current.path)}" /></div>
-      <button type="button" class="ghost" id="ws-browse">浏览…</button>
+
+    <div class="form-card">
+      <h2>步骤</h2>
+      <div class="steps-col">${stepsHtml}</div>
+      <div class="chip-row">
+        <button type="button" class="btn btn-sm btn-quiet" id="add-step">${icon("plus")}添加步骤</button>
+      </div>
     </div>
-    <label class="check">
-      <input id="ws-once" type="checkbox" ${current.oncePerDay ? "checked" : ""} />
-      同一天只自动跑一次
-    </label>
-    <h2>步骤</h2>
-    ${stepsHtml}
-    <div class="row actions">
-      <button type="button" class="small" id="add-step">添加步骤</button>
-      <button type="button" class="small" id="dup-ws">复制此工作目录</button>
-      <button type="button" class="danger small" id="del-ws">删除</button>
+
+    <div class="chip-row">
+      <button type="button" class="btn btn-sm btn-quiet" id="dup-ws">${icon("copy")}复制此工作目录</button>
+      <button type="button" class="btn btn-sm btn-danger" id="del-ws">${icon("trash")}删除</button>
     </div>`;
 
   $("ws-name").addEventListener("input", (e) => {
@@ -578,22 +609,23 @@ function renderStepCard(step: EditorStep, index: number, options: string, tools:
     .join("");
   return `<article class="step-card" data-step="${index}">
     <div class="step-head">
-      <div class="field" style="flex:1">
+      <span class="step-badge">${index + 1}</span>
+      <div class="field">
         <label>工具</label>
         <select data-tool>${toolOptions}</select>
       </div>
-      <div class="row actions">
-        <button type="button" class="small" data-up>上移</button>
-        <button type="button" class="small" data-down>下移</button>
-        <button type="button" class="danger small" data-del-step>删除</button>
+      <div class="step-tools">
+        <button type="button" class="btn btn-icon btn-quiet" data-up title="上移" aria-label="上移">${icon("up")}</button>
+        <button type="button" class="btn btn-icon btn-quiet" data-down title="下移" aria-label="下移">${icon("down")}</button>
+        <button type="button" class="btn btn-icon btn-danger" data-del-step title="删除步骤" aria-label="删除步骤">${icon("trash")}</button>
       </div>
     </div>
     <div class="param-grid">${params}</div>
     <div class="field-row">
-      <div class="field"><label>超时</label><input data-timeout value="${escapeHtml(step.timeout)}" placeholder="90m" /></div>
+      <div class="field"><label>超时</label><input data-timeout class="mono" value="${escapeHtml(step.timeout)}" placeholder="90m" /></div>
       <div class="field"><label>重试次数</label><input data-retry type="number" min="0" value="${step.retry ?? 0}" /></div>
     </div>
-    <label class="check"><input data-continue type="checkbox" ${step.continueOnError ? "checked" : ""} /> 失败后继续</label>
+    <label class="check"><input data-continue type="checkbox" ${step.continueOnError ? "checked" : ""} /> 失败后继续执行后续步骤</label>
   </article>`;
 }
 
@@ -714,17 +746,4 @@ async function save(): Promise<void> {
     showHint(message);
     host.toast(message, true);
   }
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => {
-    const entities: Record<string, string> = {
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;",
-    };
-    return entities[char];
-  });
 }
