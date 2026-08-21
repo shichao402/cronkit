@@ -14,20 +14,32 @@ schedules:
     workspaceIds:
       - trunk-client
       - tools-scripts
+  - id: rider-idle-watch
+    description: 0 点起算，空闲满 1 小时后正常退出 Rider
+    cron: "*/15 0-7 * * *"
+    workspaceIds:
+      - rider-idle-quit
 
 workspaces:
   - id: trunk-client
     name: 主干客户端（演示）
     path: fixtures/wc
     steps:
-      - type: svn-update
-        strategy: follow-latest
+      - type: toolset
+        toolsetId: builtin
+        tool: svn-update
+        with:
+          strategy: follow-latest
+          onConflict: revert
         timeout: 2h
         retry: 1
-      - type: unity-warmup
+      - type: toolset
+        toolsetId: builtin
+        tool: unity-warmup
+        with:
+          nographics: false
         timeout: 90m
-        nographics: false
-        executeMethod: null
+        retry: 1
         continueOnError: false
 
   - id: release-1.0
@@ -56,6 +68,47 @@ workspaces:
           - "scripts/nightly-check.ps1"
         timeout: 15m
         continueOnError: true
+
+  - id: osg-build-example
+    name: OSG 构建示例（需先安装 osg toolset）
+    path: fixtures/wc
+    steps:
+      - type: toolset
+        toolsetId: builtin
+        tool: svn-update
+        with: { strategy: follow-latest, onConflict: revert }
+        timeout: 2h
+      # 安装 OSGToolset 后可取消注释：
+      # - type: toolset
+      #   toolsetId: osg
+      #   tool: protobuf-sync
+      #   timeout: 30m
+      # - type: toolset
+      #   toolsetId: osg
+      #   tool: cmake-build
+      #   with: { target: GameCore_Editor }
+      #   timeout: 90m
+      - type: toolset
+        toolsetId: builtin
+        tool: script
+        with:
+          command: powershell
+          args: ["-NoProfile", "-Command", "Write-Host osg-build-example placeholder"]
+        timeout: 1m
+
+  - id: rider-idle-quit
+    name: Rider 空闲退出（演示）
+    path: fixtures/wc
+    oncePerDay: false
+    steps:
+      - type: quit-idle
+        processNames:
+          - rider64
+          - rider
+        idleFor: 1h
+        countIdleFrom: "00:00"
+        until: "08:00"
+        timeout: 3m
 
 reporting:
   enabled: false

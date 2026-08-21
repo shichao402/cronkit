@@ -94,13 +94,14 @@ export async function warmupUnity(options: {
   abortSignal: AbortSignal;
   nographics?: boolean;
   executeMethod?: string | null;
+  lowPriority?: boolean;
 }): Promise<{ detail: string; code: number | null }> {
   if (!existsSync(options.projectPath)) {
     throw new Error(`工程不存在: ${options.projectPath}`);
   }
   const lockFile = path.join(options.projectPath, "Temp", "UnityLockfile");
   if (existsSync(lockFile)) {
-    throw new Error("项目锁存在（Temp/UnityLockfile），不强制关闭正在使用的 Unity");
+    throw new Error("项目锁仍在（Temp/UnityLockfile），预热前未能释放已打开的 Unity");
   }
 
   const version = readProjectVersion(options.projectPath);
@@ -127,6 +128,7 @@ export async function warmupUnity(options: {
     timeoutMs: options.timeoutMs,
     logFile: `${options.logFile}.spawn.log`,
     abortSignal: options.abortSignal,
+    lowPriority: options.lowPriority ?? true,
   }).done;
 
   if (result.cancelled) {

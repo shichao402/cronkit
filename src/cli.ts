@@ -5,6 +5,7 @@ import { loadConfig } from "./core/config";
 import { Orchestrator } from "./core/orchestrator";
 import { defaultDataDir } from "./core/paths";
 import { buildPlan } from "./core/plan";
+import { displayTime } from "./core/time";
 
 type Args = {
   command: "validate" | "status" | "run" | "catch-up" | "help";
@@ -81,7 +82,7 @@ async function main(): Promise<void> {
   }
 
   const { configPath, dataDir } = resolvePaths(args.config);
-  const config = loadConfig(configPath);
+  const config = loadConfig(configPath, dataDir);
 
   if (args.command === "validate") {
     console.log(`配置有效: ${configPath}`);
@@ -94,7 +95,9 @@ async function main(): Promise<void> {
   if (args.command === "status") {
     console.log(`配置: ${configPath}`);
     for (const item of buildPlan(config)) {
-      const when = item.autoScheduled ? `下次 ${item.nextRun ?? "(cron 无效)"}` : "仅手动";
+      const when = item.autoScheduled
+        ? `下次 ${item.nextRun ? displayTime(item.nextRun, config.timezone) : "(cron 无效)"}`
+        : "仅手动";
       console.log(`\n[${item.workspaceId}] ${item.workspaceName}`);
       console.log(`  路径    ${item.path}`);
       console.log(`  调度    ${item.scheduleId}  ${item.cron}  ${when}`);

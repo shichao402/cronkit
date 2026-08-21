@@ -38,6 +38,7 @@ function renderConfig(detected: Detected[]): string {
       - type: unity-warmup
         path: Project
         timeout: 90m
+        retry: 1
         nographics: false`
       : "";
     return `  - id: ${item.id}
@@ -129,6 +130,7 @@ workspaces:
       - type: unity-warmup
         path: Project
         timeout: 90m
+        retry: 1
         nographics: false
 
 reporting:

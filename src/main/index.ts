@@ -4,6 +4,7 @@ import path from "node:path";
 import { ensureUserConfig } from "../core/bootstrap";
 import { Orchestrator } from "../core/orchestrator";
 import { defaultDataDir } from "../core/paths";
+import { installOrUpdateToolset, rememberToolsetSha } from "../core/toolset";
 import type { Snapshot } from "../shared/types";
 import { openPathReliable } from "./open-path";
 
@@ -147,9 +148,14 @@ function setupTray(): void {
     { label: "打开面板", click: () => showWindow() },
     { label: "立即补跑", click: () => orch.catchUpNow() },
     { type: "separator" },
-    {
+      {
       label: "退出",
       click: () => {
+        const snap = orch.snapshot();
+        if (snap.exitWarnsRunning) {
+          // Electron has no sync confirm in tray; log and quit anyway — panel shows the warn.
+          console.warn("退出时仍有运行中的任务，将被中断");
+        }
         quitting = true;
         orch.stop();
         app.quit();
@@ -219,6 +225,14 @@ if (!gotLock) {
     });
     ipcMain.handle("setSchedulerEnabled", (_e, enabled: boolean) => {
       orch.setSchedulerEnabled(enabled);
+    });
+    ipcMain.handle("updateToolset", async (_e, id: string) => {
+      const info = await installOrUpdateToolset(id, orch.dataDir);
+      if (info.sha) {
+        rememberToolsetSha(id, info.sha, orch.dataDir);
+      }
+      orch.reloadConfig();
+      return orch.snapshot();
     });
 
     const hidden = process.argv.includes("--hidden") && orch.store.data.schedulerEnabled;

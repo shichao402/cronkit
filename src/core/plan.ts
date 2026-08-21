@@ -1,5 +1,7 @@
 import { CronExpressionParser } from "cron-parser";
 import type { AppConfig } from "./config";
+import { toInvocation } from "./config";
+import { summarizeInvocation } from "./toolset";
 
 export type PlannedItem = {
   scheduleId: string;
@@ -37,16 +39,8 @@ export function describeSteps(config: AppConfig, workspaceId: string): string[] 
     return [];
   }
   return workspace.steps.map((step) => {
-    if (step.type === "svn-update") {
-      return `svn-update (${step.strategy}, timeout ${step.timeout})`;
-    }
-    if (step.type === "unity-warmup") {
-      const extra = step.nographics ? ", nographics" : "";
-      const sub = step.path ? `, ${step.path}` : "";
-      return `unity-warmup (timeout ${step.timeout}${sub}${extra})`;
-    }
-    const args = step.args.length > 0 ? ` ${step.args.join(" ")}` : "";
-    return `script (${step.command}${args}, timeout ${step.timeout})`;
+    const inv = toInvocation(step);
+    return `${summarizeInvocation(inv)} (timeout ${inv.timeout})`;
   });
 }
 

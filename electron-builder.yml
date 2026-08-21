@@ -16,6 +16,7 @@ extraResources:
     to: scripts
     filter:
       - list-occupants.ps1
+      - quit-idle-apps.ps1
 asar: true
 win:
   icon: build/icon.png

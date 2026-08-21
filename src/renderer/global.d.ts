@@ -11,6 +11,7 @@ export type DesktopApi = {
   openDataDir: () => Promise<{ ok: boolean; error?: string }>;
   setOpenAtLogin: (enabled: boolean) => Promise<unknown>;
   setSchedulerEnabled: (enabled: boolean) => Promise<unknown>;
+  updateToolset: (id: string) => Promise<Snapshot>;
   onSnapshot: (handler: (snapshot: Snapshot) => void) => () => void;
 };
 

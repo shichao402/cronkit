@@ -28,6 +28,7 @@ export type RunRecord = {
   workspaceName: string;
   scheduleId: string;
   localDate: string;
+  keyedTail?: string;
   trigger: Trigger;
   status: RunStatus;
   startedAt: string;
@@ -56,6 +57,18 @@ export type Snapshot = {
   appState: "idle" | "running" | "failed";
   schedulerEnabled: boolean;
   openAtLogin: boolean;
+  exitWarnsRunning?: boolean;
+  toolsets?: Array<{
+    id: string;
+    displayName: string;
+    root: string;
+    schemaVersion: number;
+    sha?: string;
+    installed: boolean;
+    depsReady: boolean;
+    error?: string;
+    tools: Array<{ id: string; displayName: string }>;
+  }>;
   workspaces: WorkspaceView[];
   runs: RunRecord[];
 };

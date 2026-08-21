@@ -16,6 +16,20 @@ export type ExecHandle = {
   done: Promise<ExecResult>;
 };
 
+const STRIP_ENV = new Set(["VSCODE_NLS_CONFIG", "VSCODE_PID", "VSCODE_CWD", "VSCODE_NLS_CONFIG_JSON"]);
+
+export function buildChildEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = { ...base };
+  for (const key of STRIP_ENV) {
+    delete env[key];
+  }
+  env.GIT_TERMINAL_PROMPT = "0";
+  env.PYTHONUTF8 = "1";
+  env.PYTHONIOENCODING = "utf-8";
+  env.SVN_NON_INTERACTIVE = "1";
+  return env;
+}
+
 export function runCommand(options: {
   command: string;
   args: string[];
@@ -23,6 +37,9 @@ export function runCommand(options: {
   timeoutMs: number;
   logFile: string;
   abortSignal?: AbortSignal;
+  lowPriority?: boolean;
+  gracefulMs?: number;
+  env?: NodeJS.ProcessEnv;
 }): ExecHandle {
   mkdirSync(path.dirname(options.logFile), { recursive: true });
   const log = createWriteStream(options.logFile, { flags: "a" });
@@ -35,8 +52,10 @@ export function runCommand(options: {
   let proc: ChildProcess | undefined;
   let settled = false;
   let timer: NodeJS.Timeout | undefined;
+  let forceTimer: NodeJS.Timeout | undefined;
+  const gracefulMs = options.gracefulMs ?? 15_000;
 
-  const killTree = (): void => {
+  const forceKill = (): void => {
     if (!proc?.pid) {
       return;
     }
@@ -44,6 +63,26 @@ export function runCommand(options: {
       windowsHide: true,
       stdio: "ignore",
     });
+  };
+
+  const softKill = (): void => {
+    if (!proc?.pid) {
+      return;
+    }
+    // Try graceful tree terminate first (no /F).
+    spawn("taskkill", ["/pid", String(proc.pid), "/T"], {
+      windowsHide: true,
+      stdio: "ignore",
+    });
+    if (forceTimer) {
+      clearTimeout(forceTimer);
+    }
+    forceTimer = setTimeout(() => {
+      if (!settled) {
+        log.write("\n[cronkit] graceful wait elapsed, force kill\n");
+        forceKill();
+      }
+    }, gracefulMs);
   };
 
   const done = new Promise<ExecResult>((resolve) => {
@@ -55,6 +94,9 @@ export function runCommand(options: {
       if (timer) {
         clearTimeout(timer);
       }
+      if (forceTimer) {
+        clearTimeout(forceTimer);
+      }
       options.abortSignal?.removeEventListener("abort", onAbort);
       log.end();
       resolve({ code, signal, stdout, stderr, cancelled, timedOut });
@@ -62,15 +104,28 @@ export function runCommand(options: {
 
     const onAbort = (): void => {
       cancelled = true;
-      killTree();
+      softKill();
     };
 
+    const env = buildChildEnv(options.env ?? process.env);
     proc = spawn(options.command, options.args, {
       cwd: options.cwd,
       windowsHide: true,
-      env: process.env,
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
+
+    if (options.lowPriority && proc.pid) {
+      spawn(
+        "powershell",
+        [
+          "-NoProfile",
+          "-Command",
+          `try { (Get-Process -Id ${proc.pid}).PriorityClass = 'BelowNormal' } catch {}`,
+        ],
+        { windowsHide: true, stdio: "ignore" },
+      );
+    }
 
     proc.stdout?.on("data", (chunk: Buffer) => {
       stdout = cap(stdout + chunk.toString("utf8"));
@@ -91,7 +146,7 @@ export function runCommand(options: {
     timer = setTimeout(() => {
       timedOut = true;
       cancelled = true;
-      killTree();
+      softKill();
     }, options.timeoutMs);
 
     if (options.abortSignal?.aborted) {
@@ -104,7 +159,7 @@ export function runCommand(options: {
   return {
     cancel: () => {
       cancelled = true;
-      killTree();
+      softKill();
     },
     done,
   };

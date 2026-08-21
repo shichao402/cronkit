@@ -1,22 +1,33 @@
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import type { RunRecord, RunStatus, Snapshot, StepRecord, Trigger } from "../shared/types";
-import { loadConfig, stepWorkingPath, type AppConfig, type Step, type Workspace } from "./config";
+import {
+  loadConfig,
+  stepWorkingPath,
+  toInvocation,
+  type AppConfig,
+  type Workspace,
+} from "./config";
 import { TypedEmitter } from "./events";
 import { logsDirIn, normalizePathKey } from "./paths";
 import { buildPlan, previousFire } from "./plan";
-import { runScriptStep } from "./script";
 import { Store } from "./store";
-import { svnCheckAndUpdate } from "./svn";
-import { addDays, localDate, nowIso, parseTimeout } from "./time";
-import { warmupUnity } from "./unity";
-import { releaseOccupants } from "./occupants";
+import { addDays, displayTime, localDate, nowIso, parseTimeout } from "./time";
+import { prepareExclusiveAccess } from "./occupants";
+import {
+  listInstalledToolsets,
+  lookupTool,
+  runToolInvocation,
+  summarizeInvocation,
+  type ToolInvocation,
+} from "./toolset";
 
 type Job = {
   run: RunRecord;
   workspace: Workspace;
   persistKey: boolean;
+  keyedTail: string;
   abort: AbortController;
   resolve: (run: RunRecord) => void;
 };
@@ -40,14 +51,19 @@ export class Orchestrator extends TypedEmitter {
     this.store = new Store(options.dataDir);
     this.reloadConfig();
     this.store.markStaleRunning();
+    this.eventLog(`程序初始化 schedulerEnabled=${this.store.data.schedulerEnabled}`);
   }
 
   reloadConfig(): void {
     try {
-      this.config = loadConfig(this.configPath);
+      this.config = loadConfig(this.configPath, this.dataDir);
       this.configError = undefined;
+      this.eventLog(
+        `配置加载成功 schedules=${this.config.schedules.length} workspaces=${this.config.workspaces.length}`,
+      );
     } catch (error) {
       this.configError = error instanceof Error ? error.message : String(error);
+      this.eventLog(`配置加载失败: ${this.configError}`);
     }
     this.emitChange();
   }
@@ -58,6 +74,7 @@ export class Orchestrator extends TypedEmitter {
     }
     this.timer = setInterval(() => this.tick(false), 20_000);
     this.timer.unref?.();
+    this.eventLog("调度器已启动");
   }
 
   stop(): void {
@@ -70,6 +87,7 @@ export class Orchestrator extends TypedEmitter {
   setSchedulerEnabled(enabled: boolean): void {
     this.store.data.schedulerEnabled = enabled;
     this.store.flush();
+    this.eventLog(`自动调度已${enabled ? "启用" : "停用"}`);
     this.emitChange();
   }
 
@@ -82,6 +100,7 @@ export class Orchestrator extends TypedEmitter {
       (run) => run.status === "failed" && run.localDate === (this.config ? localDate(this.config.timezone) : ""),
     );
     const appState = runningIds.size > 0 ? "running" : hasFailed ? "failed" : "idle";
+    const runningCount = [...this.jobs.values()].filter((job) => job.run.status === "running").length;
 
     return {
       configPath: this.configPath,
@@ -91,6 +110,8 @@ export class Orchestrator extends TypedEmitter {
       appState,
       schedulerEnabled: this.store.data.schedulerEnabled,
       openAtLogin: this.openAtLogin,
+      exitWarnsRunning: runningCount > 0,
+      toolsets: listInstalledToolsets(this.dataDir),
       workspaces: plan.map((item) => {
         const lastRun = this.store.data.runs.find((run) => run.workspaceId === item.workspaceId);
         return {
@@ -110,7 +131,12 @@ export class Orchestrator extends TypedEmitter {
     };
   }
 
-  async runWorkspace(workspaceId: string, trigger: Trigger, scheduleId = "manual"): Promise<RunRecord> {
+  async runWorkspace(
+    workspaceId: string,
+    trigger: Trigger,
+    scheduleId = "manual",
+    slotKey?: string,
+  ): Promise<RunRecord> {
     if (!this.config || this.configError) {
       throw new Error(this.configError ?? "配置未加载");
     }
@@ -120,9 +146,10 @@ export class Orchestrator extends TypedEmitter {
     }
 
     const date = localDate(this.config.timezone);
+    const keyedTail = workspace.oncePerDay === false && slotKey ? slotKey : date;
     const persistKey = trigger !== "manual";
     if (persistKey) {
-      const existing = this.store.data.keyed[this.store.runKey(workspaceId, scheduleId, date)];
+      const existing = this.store.data.keyed[this.store.runKey(workspaceId, scheduleId, keyedTail)];
       if (existing) {
         const inFlight = existing.status === "queued" || existing.status === "running";
         const doneOk = existing.status === "succeeded" || existing.status === "skipped";
@@ -144,15 +171,19 @@ export class Orchestrator extends TypedEmitter {
       workspaceName: workspace.name,
       scheduleId,
       localDate: date,
+      keyedTail,
       trigger,
       status: "queued",
       startedAt: nowIso(),
-      steps: workspace.steps.map((step, index) => ({
-        index,
-        type: step.type,
-        status: "pending",
-        summary: stepSummary(step),
-      })),
+      steps: workspace.steps.map((step, index) => {
+        const inv = toInvocation(step);
+        return {
+          index,
+          type: `${inv.toolsetId}/${inv.tool}`,
+          status: "pending" as const,
+          summary: summarizeInvocation(inv),
+        };
+      }),
     };
 
     return new Promise<RunRecord>((resolve) => {
@@ -160,12 +191,16 @@ export class Orchestrator extends TypedEmitter {
         run,
         workspace,
         persistKey,
+        keyedTail,
         abort: new AbortController(),
         resolve,
       };
       this.queue.push(job);
       this.jobs.set(run.runId, job);
       this.store.upsertRun(run, persistKey);
+      this.eventLog(
+        `任务入队 workspace=${workspaceId} trigger=${trigger} schedule=${scheduleId} slot=${keyedTail} runId=${run.runId}`,
+      );
       this.emitChange();
       this.pump();
     });
@@ -215,8 +250,13 @@ export class Orchestrator extends TypedEmitter {
         continue;
       }
       const trigger: Trigger = age < onTimeWindowMs ? "schedule" : "catch-up";
+      const slotKey = prev.toISOString();
       for (const workspaceId of schedule.workspaceIds) {
-        void this.runWorkspace(workspaceId, trigger, schedule.id).catch(() => undefined);
+        void this.runWorkspace(workspaceId, trigger, schedule.id, slotKey).catch((error) => {
+          this.eventLog(
+            `调度入队失败 workspace=${workspaceId}: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        });
       }
     }
   }
@@ -244,28 +284,17 @@ export class Orchestrator extends TypedEmitter {
     job.run.status = "running";
     job.run.startedAt = nowIso();
     this.store.upsertRun(job.run, job.persistKey);
+    this.runLog(job, `任务开始 trigger=${job.run.trigger} schedule=${job.run.scheduleId}`);
     this.emitChange();
 
     try {
-        if (this.config.runtime.releaseOccupants !== false) {
-        const released = await releaseOccupants({
-          target: job.workspace.path,
-          graceMs: this.config.runtime.releaseGraceMs,
-          abortSignal: job.abort.signal,
-        });
-        const logDir = logsDirIn(this.dataDir, job.run.localDate, job.run.runId);
-        mkdirSync(logDir, { recursive: true });
-        writeFileSync(
-          path.join(logDir, "occupants.log"),
-          released.closed.length === 0
-            ? "无占用进程\n"
-            : `已结束占用进程:\n${released.closed.map((item) => `${item.name} pid=${item.pid} [${item.source}]`).join("\n")}\n`,
-          "utf8",
-        );
-        if (released.remaining.length > 0) {
-          const names = released.remaining.map((item) => `${item.name}(${item.pid})`).join(", ");
-          throw new Error(`无法释放目录占用: ${names}`);
-        }
+      const invocations = job.workspace.steps.map((step) => toInvocation(step));
+      const needsExclusive = invocations.some((inv) => {
+        const tool = lookupTool(inv.toolsetId, inv.tool, this.dataDir);
+        return tool?.requiresExclusiveWorkspace === true;
+      });
+      if (needsExclusive) {
+        await this.ensureExclusive(job, "run-start");
       }
       for (let i = 0; i < job.workspace.steps.length; i += 1) {
         if (job.abort.signal.aborted) {
@@ -273,33 +302,59 @@ export class Orchestrator extends TypedEmitter {
           return;
         }
         const step = job.workspace.steps[i];
+        const inv = invocations[i];
         const record = job.run.steps[i];
         const skipSvn =
-          step.type === "svn-update" &&
-          (step.strategy === "disabled" || (step.strategy === "manual" && job.run.trigger !== "manual"));
+          inv.tool === "svn-update" &&
+          (inv.params.strategy === "disabled" ||
+            (inv.params.strategy === "manual" && job.run.trigger !== "manual"));
 
         record.status = skipSvn ? "skipped" : "running";
         record.startedAt = nowIso();
+        this.runLog(job, `步骤开始 #${i} ${record.summary}`);
         this.store.upsertRun(job.run, job.persistKey);
         this.emitChange();
 
         if (skipSvn) {
           record.finishedAt = nowIso();
           record.error = undefined;
+          record.outputTail = "按当前 strategy/触发方式跳过";
+          this.runLog(job, `步骤跳过 #${i}: ${record.outputTail}`);
           continue;
         }
 
-        const attempts = (step.retry ?? 0) + 1;
+        const attempts = stepAttempts(inv, this.dataDir);
+        const toolMeta = lookupTool(inv.toolsetId, inv.tool, this.dataDir);
+        if (toolMeta?.idempotent === false && (inv.retry ?? 0) > 0) {
+          this.runLog(
+            job,
+            `步骤 #${i} 工具非幂等，忽略 retry=${inv.retry}，仅执行 1 次`,
+          );
+        }
         let lastError: unknown;
         for (let attempt = 0; attempt < attempts; attempt += 1) {
           try {
-            await this.runStep(job, step, record);
+            const tool = lookupTool(inv.toolsetId, inv.tool, this.dataDir);
+            if (tool?.requiresExclusiveWorkspace) {
+              await this.ensureExclusive(job, `${inv.toolsetId}/${inv.tool}#${attempt + 1}`);
+            }
+            await this.runInvocation(job, inv, record);
             lastError = undefined;
             break;
           } catch (error) {
             lastError = error;
+            this.runLog(
+              job,
+              `步骤尝试失败 #${i} attempt=${attempt + 1}/${attempts}: ${
+                error instanceof Error ? error.message : String(error)
+              }`,
+            );
             if (job.abort.signal.aborted) {
               break;
+            }
+            if (attempt + 1 < attempts) {
+              this.runLog(job, `步骤将在 3 秒后重试 #${i}`);
+              await delay(3_000, job.abort.signal);
             }
           }
         }
@@ -315,18 +370,23 @@ export class Orchestrator extends TypedEmitter {
           record.error = lastError instanceof Error ? lastError.message : String(lastError);
           this.store.upsertRun(job.run, job.persistKey);
           this.emitChange();
-          if (!step.continueOnError) {
+          if (!inv.continueOnError) {
             this.finish(job, "failed", record.error);
             return;
           }
-        } else {
+        } else if (record.status !== "skipped") {
           record.status = "succeeded";
         }
+        this.runLog(
+          job,
+          `步骤结束 #${i} status=${record.status}${record.outputTail ? ` detail=${singleLine(record.outputTail)}` : ""}`,
+        );
         this.store.upsertRun(job.run, job.persistKey);
         this.emitChange();
       }
       const failed = job.run.steps.some((step) => step.status === "failed");
-      this.finish(job, failed ? "failed" : "succeeded");
+      const allSkipped = job.run.steps.every((step) => step.status === "skipped");
+      this.finish(job, failed ? "failed" : allSkipped ? "skipped" : "succeeded");
     } catch (error) {
       this.finish(job, "failed", error instanceof Error ? error.message : String(error));
     } finally {
@@ -334,59 +394,84 @@ export class Orchestrator extends TypedEmitter {
     }
   }
 
-  private async runStep(job: Job, step: Step, record: StepRecord): Promise<void> {
-    const cwd = stepWorkingPath(job.workspace, step);
-    const logDir = logsDirIn(this.dataDir, job.run.localDate, job.run.runId);
-    mkdirSync(logDir, { recursive: true });
-    const logFile = path.join(logDir, `step-${String(record.index).padStart(2, "0")}-${step.type}.log`);
-    record.logFile = logFile;
-    const timeoutMs = parseTimeout(step.timeout);
-
-    if (step.type === "svn-update") {
-      const result = await svnCheckAndUpdate({
-        workingCopy: cwd,
-        timeoutMs,
-        logFile,
-        abortSignal: job.abort.signal,
-        skipUpdate: false,
-        onConflict: step.onConflict,
-        backupOnRevert: step.backupOnRevert,
-        backupDir: step.backupDir,
-        localDate: job.run.localDate,
-      });
-      record.exitCode = result.code;
-      record.outputTail = result.detail;
+  private async ensureExclusive(job: Job, label: string): Promise<void> {
+    if (this.config.runtime.releaseOccupants === false) {
       return;
     }
-
-    if (step.type === "unity-warmup") {
-      const spawnLog = `${logFile}.spawn.log`;
-      const result = await warmupUnity({
-        projectPath: cwd,
-        timeoutMs,
-        logFile,
-        abortSignal: job.abort.signal,
-        nographics: step.nographics,
-        executeMethod: step.executeMethod,
-      });
-      record.exitCode = result.code;
-      record.outputTail = result.detail;
-      if (!existsSync(logFile) && existsSync(spawnLog)) {
-        record.logFile = spawnLog;
-      }
-      return;
-    }
-
-    const result = await runScriptStep({
-      cwd,
-      command: step.command,
-      args: step.args,
-      timeoutMs,
-      logFile,
+    const prepared = await prepareExclusiveAccess({
+      target: job.workspace.path,
+      graceMs: this.config.runtime.releaseGraceMs,
       abortSignal: job.abort.signal,
     });
+    const logDir = logsDirIn(this.dataDir, job.run.localDate, job.run.runId);
+    mkdirSync(logDir, { recursive: true });
+    const lines = [`[${nowIso()}] ${label}`];
+    if (prepared.closed.length === 0) {
+      lines.push("无占用进程");
+    } else {
+      lines.push("已结束占用进程:");
+      for (const item of prepared.closed) {
+        lines.push(`  ${item.name} pid=${item.pid} [${item.source}]`);
+      }
+    }
+    if (prepared.remainingLocks.length > 0) {
+      lines.push(`残留 Unity 锁: ${prepared.remainingLocks.join(", ")}`);
+    }
+    appendFileSync(path.join(logDir, "occupants.log"), `${lines.join("\n")}\n\n`, "utf8");
+    if (prepared.remaining.length > 0) {
+      const names = prepared.remaining.map((item) => `${item.name}(${item.pid})`).join(", ");
+      throw new Error(`无法释放目录占用: ${names}`);
+    }
+    if (prepared.remainingLocks.length > 0) {
+      throw new Error(`无法释放 Unity 项目锁: ${prepared.remainingLocks.join(", ")}`);
+    }
+  }
+
+  private async runInvocation(job: Job, inv: ToolInvocation, record: StepRecord): Promise<void> {
+    const cwd = stepWorkingPath(job.workspace, inv);
+    const logDir = logsDirIn(this.dataDir, job.run.localDate, job.run.runId);
+    mkdirSync(logDir, { recursive: true });
+    const logFile = path.join(
+      logDir,
+      `step-${String(record.index).padStart(2, "0")}-${inv.toolsetId}-${inv.tool}.log`,
+    );
+    record.logFile = logFile;
+    const timeoutMs = parseTimeout(inv.timeout);
+    const resultJsonPath = `${logFile}.result.json`;
+
+    const result = await runToolInvocation(
+      inv,
+      {
+        cwd,
+        timeoutMs,
+        logFile,
+        abortSignal: job.abort.signal,
+        resultJsonPath,
+        localDate: job.run.localDate,
+        workspacePath: job.workspace.path,
+      },
+      this.dataDir,
+    );
     record.exitCode = result.code;
-    record.outputTail = result.detail;
+    if (existsSync(resultJsonPath)) {
+      try {
+        const parsed = JSON.parse(readFileSync(resultJsonPath, "utf8")) as {
+          summary?: string;
+          detail?: string;
+        };
+        record.outputTail = parsed.summary || parsed.detail || result.detail;
+      } catch {
+        record.outputTail = result.detail;
+      }
+    } else {
+      record.outputTail = result.detail;
+    }
+    if (result.skipped) {
+      record.status = "skipped";
+    }
+    if (!existsSync(logFile) && existsSync(`${logFile}.spawn.log`)) {
+      record.logFile = `${logFile}.spawn.log`;
+    }
   }
 
   private finish(job: Job, status: RunStatus, error?: string): void {
@@ -403,18 +488,90 @@ export class Orchestrator extends TypedEmitter {
     }
     this.jobs.delete(job.run.runId);
     this.store.upsertRun(job.run, job.persistKey);
+    this.runLog(job, `任务结束 status=${status}${error ? ` error=${singleLine(error)}` : ""}`);
+    this.writeRunSummary(job);
+    this.eventLog(
+      `任务结束 workspace=${job.run.workspaceId} status=${status} runId=${job.run.runId}`,
+    );
     this.emit("runFinished", job.run);
     this.emitChange();
     job.resolve(job.run);
   }
+
+  private eventLog(message: string): void {
+    const date = this.config ? localDate(this.config.timezone) : new Date().toISOString().slice(0, 10);
+    const dir = path.join(this.dataDir, "logs", date);
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(
+      path.join(dir, "scheduler.log"),
+      `[${displayTime(undefined, this.config?.timezone)}] ${message}\n`,
+      "utf8",
+    );
+  }
+
+  private runLog(job: Job, message: string): void {
+    const dir = logsDirIn(this.dataDir, job.run.localDate, job.run.runId);
+    mkdirSync(dir, { recursive: true });
+    appendFileSync(
+      path.join(dir, "run.log"),
+      `[${displayTime(undefined, this.config?.timezone)}] ${message}\n`,
+      "utf8",
+    );
+  }
+
+  private writeRunSummary(job: Job): void {
+    const dir = logsDirIn(this.dataDir, job.run.localDate, job.run.runId);
+    mkdirSync(dir, { recursive: true });
+    const lines = [
+      `任务: ${job.run.workspaceName} (${job.run.workspaceId})`,
+      `结果: ${job.run.status}`,
+      `触发: ${job.run.trigger} / ${job.run.scheduleId}`,
+      `开始: ${displayTime(job.run.startedAt, this.config?.timezone)}`,
+      `结束: ${job.run.finishedAt ? displayTime(job.run.finishedAt, this.config?.timezone) : "-"}`,
+      `Run ID: ${job.run.runId}`,
+      "",
+      ...job.run.steps.flatMap((step) => [
+        `步骤 ${step.index + 1}: ${step.summary}`,
+        `  状态: ${step.status}`,
+        `  开始: ${step.startedAt ? displayTime(step.startedAt, this.config?.timezone) : "-"}`,
+        `  结束: ${step.finishedAt ? displayTime(step.finishedAt, this.config?.timezone) : "-"}`,
+        `  结果: ${step.outputTail ? singleLine(step.outputTail) : "-"}`,
+        `  错误: ${step.error ? singleLine(step.error) : "-"}`,
+        `  日志: ${step.logFile ?? "-"}`,
+        "",
+      ]),
+    ];
+    appendFileSync(path.join(dir, "summary.txt"), `${lines.join("\n")}\n`, "utf8");
+  }
 }
 
-function stepSummary(step: Step): string {
-  if (step.type === "svn-update") {
-    return `svn-update (${step.strategy})`;
+function stepAttempts(inv: ToolInvocation, dataDir: string): number {
+  const tool = lookupTool(inv.toolsetId, inv.tool, dataDir);
+  if (tool && tool.idempotent === false) {
+    if ((inv.retry ?? 0) > 0) {
+      // Non-idempotent tools never auto-retry; logged by caller via attempts=1.
+    }
+    return 1;
   }
-  if (step.type === "unity-warmup") {
-    return step.path ? `unity-warmup (${step.path})` : "unity-warmup";
-  }
-  return `script ${step.command}`;
+  const fallback =
+    inv.tool === "svn-update" || inv.tool === "unity-warmup" ? 1 : 0;
+  return (inv.retry ?? fallback) + 1;
+}
+
+function singleLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer);
+        reject(new Error("已取消"));
+      },
+      { once: true },
+    );
+  });
 }

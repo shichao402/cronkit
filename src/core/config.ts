@@ -5,11 +5,33 @@ import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 import { configPathIn, defaultDataDir } from "./paths";
+import {
+  normalizeStep,
+  resolveTool,
+  type ToolInvocation,
+  validateInvocationParams,
+} from "./toolset";
 
 const timeoutSchema = z
   .string()
   .regex(/^\d+(ms|s|m|h)$/, "timeout 形如 90m / 2h / 15s");
 
+const hhmm = z.string().regex(/^\d{2}:\d{2}$/, "时间形如 00:00");
+
+/** Unified toolset step. */
+const toolsetStepSchema = z.object({
+  type: z.literal("toolset"),
+  toolsetId: z.string().min(1),
+  tool: z.string().min(1),
+  with: z.record(z.string(), z.unknown()).default({}),
+  args: z.array(z.string()).optional(),
+  path: z.string().optional(),
+  timeout: timeoutSchema,
+  retry: z.number().int().min(0).optional(),
+  continueOnError: z.boolean().optional(),
+});
+
+/** Legacy aliases kept so existing night configs keep working. */
 const svnStepSchema = z.object({
   type: z.literal("svn-update"),
   strategy: z.enum(["follow-latest", "manual", "disabled"]),
@@ -42,16 +64,30 @@ const scriptStepSchema = z.object({
   retry: z.number().int().min(0).optional(),
 });
 
+const quitIdleStepSchema = z.object({
+  type: z.literal("quit-idle"),
+  processNames: z.array(z.string().min(1)).min(1),
+  idleFor: timeoutSchema,
+  countIdleFrom: hhmm.default("00:00"),
+  until: hhmm.default("08:00"),
+  timeout: timeoutSchema,
+  continueOnError: z.boolean().optional(),
+  retry: z.number().int().min(0).optional(),
+});
+
 const stepSchema = z.discriminatedUnion("type", [
+  toolsetStepSchema,
   svnStepSchema,
   unityStepSchema,
   scriptStepSchema,
+  quitIdleStepSchema,
 ]);
 
 const workspaceSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   path: z.string().min(1),
+  oncePerDay: z.boolean().default(true),
   steps: z.array(stepSchema).min(1),
 });
 
@@ -99,6 +135,7 @@ export const configSchema = z.object({
 export type AppConfig = z.infer<typeof configSchema>;
 export type Workspace = AppConfig["workspaces"][number];
 export type Step = Workspace["steps"][number];
+export type NormalizedStep = ToolInvocation;
 
 export function defaultConfigCandidates(dataDir = defaultDataDir()): string[] {
   const here = path.dirname(fileURLToPath(import.meta.url));
@@ -110,14 +147,24 @@ export function defaultConfigCandidates(dataDir = defaultDataDir()): string[] {
   ];
 }
 
-export function stepWorkingPath(workspace: Workspace, step: Step): string {
-  if (!step.path) {
-    return workspace.path;
-  }
-  return path.resolve(workspace.path, step.path);
+export function toInvocation(step: Step): ToolInvocation {
+  return normalizeStep(step as unknown as Record<string, unknown>);
 }
 
-export function loadConfig(filePath: string): AppConfig {
+export function stepWorkingPath(workspace: Workspace, step: Step | ToolInvocation): string {
+  const sub =
+    "path" in step && typeof step.path === "string"
+      ? step.path
+      : "params" in step && typeof step.params?.path === "string"
+        ? (step.params.path as string)
+        : undefined;
+  if (!sub) {
+    return workspace.path;
+  }
+  return path.resolve(workspace.path, sub);
+}
+
+export function loadConfig(filePath: string, dataDir = defaultDataDir()): AppConfig {
   const raw = readFileSync(filePath, "utf8").replace(/^\uFEFF+/g, "");
   const parsed = parseYaml(raw);
   const result = configSchema.safeParse(parsed);
@@ -150,6 +197,26 @@ export function loadConfig(filePath: string): AppConfig {
         throw new Error(`schedule ${schedule.id} 引用了不存在的 workspace: ${id}`);
       }
     }
+  }
+
+  const toolErrors: string[] = [];
+  for (const workspace of config.workspaces) {
+    workspace.steps.forEach((step, index) => {
+      const inv = toInvocation(step);
+      const errors = validateInvocationParams(inv, (ts, tool) => resolveTool(ts, tool, dataDir));
+      for (const err of errors) {
+        toolErrors.push(`  - workspaces.${workspace.id}.steps[${index}]: ${err}`);
+      }
+      // External toolset must be installed when referenced.
+      if (inv.toolsetId !== "builtin" && !resolveTool(inv.toolsetId, inv.tool, dataDir)) {
+        toolErrors.push(
+          `  - workspaces.${workspace.id}.steps[${index}]: toolset ${inv.toolsetId} 未安装或缺少工具 ${inv.tool}`,
+        );
+      }
+    });
+  }
+  if (toolErrors.length > 0) {
+    throw new Error(`工具参数校验失败: ${filePath}\n${toolErrors.join("\n")}`);
   }
 
   return config;

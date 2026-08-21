@@ -12,6 +12,7 @@ const api = {
   openDataDir: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("openDataDir"),
   setOpenAtLogin: (enabled: boolean) => ipcRenderer.invoke("setOpenAtLogin", enabled),
   setSchedulerEnabled: (enabled: boolean) => ipcRenderer.invoke("setSchedulerEnabled", enabled),
+  updateToolset: (id: string): Promise<Snapshot> => ipcRenderer.invoke("updateToolset", id),
   onSnapshot: (handler: (snapshot: Snapshot) => void): (() => void) => {
     const listener = (_event: unknown, snapshot: Snapshot): void => handler(snapshot);
     ipcRenderer.on("snapshot", listener);

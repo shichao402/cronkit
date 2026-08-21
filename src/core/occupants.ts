@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -50,6 +50,9 @@ const ALWAYS_RELEASE = new Set([
   "tsvncache",
 ]);
 
+// 强杀会损坏这些 IDE 的索引，只请求正常关闭；关不掉就让任务失败并报告。
+const NEVER_FORCE_KILL = ["rider", "idea", "clion", "webstorm", "pycharm", "goland", "devenv"];
+
 function helperScript(): string {
   const here = path.dirname(fileURLToPath(import.meta.url));
   const candidates = [
@@ -85,6 +88,25 @@ export function listOccupants(target: string): Occupant[] {
   }
 }
 
+function isAlwaysRelease(item: Occupant): boolean {
+  const base = path.parse(item.name).name.toLowerCase();
+  const full = item.name.toLowerCase();
+  return [...ALWAYS_RELEASE].some((name) => base.includes(name) || full.includes(name));
+}
+
+function isNeverForceKill(item: Occupant): boolean {
+  const base = path.parse(item.name).name.toLowerCase();
+  return NEVER_FORCE_KILL.some((name) => base.includes(name));
+}
+
+function isUnityEditorFamily(item: Occupant): boolean {
+  const base = path.parse(item.name).name.toLowerCase();
+  const full = item.name.toLowerCase();
+  return ["unity", "unitycrashhandler", "unityshadercompiler", "unity.licensing.client"].some(
+    (name) => base.includes(name) || full.includes(name),
+  );
+}
+
 export function filterReleasable(occupants: Occupant[]): Occupant[] {
   const self = new Set([process.pid, process.ppid ?? 0]);
   const unique = new Map<number, Occupant>();
@@ -93,16 +115,22 @@ export function filterReleasable(occupants: Occupant[]): Occupant[] {
       continue;
     }
     const base = path.parse(item.name).name.toLowerCase();
-    if (PROTECTED_NAMES.has(base)) {
+    if (PROTECTED_NAMES.has(base) && !isAlwaysRelease(item)) {
       continue;
     }
-    const isUnityFamily = [...ALWAYS_RELEASE].some((name) => base.includes(name) || item.name.toLowerCase().includes(name));
-    if (item.source === "cmdline" && !isUnityFamily) {
+    if (item.source === "cmdline" && !isAlwaysRelease(item)) {
       continue;
     }
     unique.set(item.pid, item);
   }
   return [...unique.values()];
+}
+
+export function unityLockFiles(workspaceRoot: string): string[] {
+  return [
+    path.join(workspaceRoot, "Temp", "UnityLockfile"),
+    path.join(workspaceRoot, "Project", "Temp", "UnityLockfile"),
+  ].filter((file) => existsSync(file));
 }
 
 function taskkill(pid: number, force: boolean): void {
@@ -137,29 +165,77 @@ export async function releaseOccupants(options: {
   graceMs?: number;
   abortSignal?: AbortSignal;
 }): Promise<{ closed: Occupant[]; remaining: Occupant[] }> {
+  const prepared = await prepareExclusiveAccess(options);
+  return { closed: prepared.closed, remaining: prepared.remaining };
+}
+
+export async function prepareExclusiveAccess(options: {
+  target: string;
+  graceMs?: number;
+  abortSignal?: AbortSignal;
+  lockWaitMs?: number;
+}): Promise<{
+  closed: Occupant[];
+  remaining: Occupant[];
+  remainingLocks: string[];
+}> {
   const graceMs = options.graceMs ?? 20_000;
   const first = filterReleasable(listOccupants(options.target));
-  if (first.length === 0) {
-    return { closed: [], remaining: [] };
-  }
-
-  for (const item of first) {
-    if (options.abortSignal?.aborted) {
-      throw new Error("已取消");
+  if (first.length > 0) {
+    for (const item of first) {
+      if (options.abortSignal?.aborted) {
+        throw new Error("已取消");
+      }
+      taskkill(item.pid, false);
     }
-    taskkill(item.pid, false);
-  }
-  await waitMs(Math.min(graceMs, 20_000), options.abortSignal);
+    await waitMs(Math.min(graceMs, 20_000), options.abortSignal);
 
-  const leftover = filterReleasable(listOccupants(options.target)).filter((item) => stillAlive(item.pid));
-  for (const item of leftover) {
-    if (options.abortSignal?.aborted) {
-      throw new Error("已取消");
+    const leftover = filterReleasable(listOccupants(options.target)).filter((item) => stillAlive(item.pid));
+    for (const item of leftover) {
+      if (options.abortSignal?.aborted) {
+        throw new Error("已取消");
+      }
+      if (isNeverForceKill(item)) {
+        continue;
+      }
+      taskkill(item.pid, true);
     }
-    taskkill(item.pid, true);
+    await waitMs(2_000, options.abortSignal);
   }
-  await waitMs(2_000, options.abortSignal);
 
   const remaining = filterReleasable(listOccupants(options.target));
-  return { closed: first, remaining };
+  if (remaining.length > 0) {
+    return { closed: first, remaining, remainingLocks: unityLockFiles(options.target) };
+  }
+  const remainingLocks = await clearStaleUnityLocks(options.target, options.lockWaitMs ?? 10_000, options.abortSignal);
+  return { closed: first, remaining, remainingLocks };
+}
+
+async function clearStaleUnityLocks(
+  workspaceRoot: string,
+  waitMsMax: number,
+  abortSignal?: AbortSignal,
+): Promise<string[]> {
+  const deadline = Date.now() + waitMsMax;
+  while (true) {
+    const locks = unityLockFiles(workspaceRoot);
+    if (locks.length === 0) {
+      return [];
+    }
+    const unityAlive = filterReleasable(listOccupants(workspaceRoot)).filter(isUnityEditorFamily);
+    if (unityAlive.length === 0) {
+      for (const file of locks) {
+        try {
+          unlinkSync(file);
+        } catch {
+          // 锁文件可能正在被删除
+        }
+      }
+      return unityLockFiles(workspaceRoot);
+    }
+    if (Date.now() >= deadline) {
+      return locks;
+    }
+    await waitMs(500, abortSignal);
+  }
 }

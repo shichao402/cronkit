@@ -39,12 +39,22 @@ export class Store {
       this.data.runs = this.data.runs.slice(0, 200);
     }
     if (persistKey && run.trigger !== "manual") {
-      this.data.keyed[this.runKey(run.workspaceId, run.scheduleId, run.localDate)] = {
+      this.data.keyed[this.runKey(run.workspaceId, run.scheduleId, run.keyedTail ?? run.localDate)] = {
         runId: run.runId,
         status: run.status,
       };
+      this.pruneKeyed();
     }
     this.flush();
+  }
+
+  private pruneKeyed(): void {
+    const alive = new Set(this.data.runs.map((run) => run.runId));
+    for (const [key, value] of Object.entries(this.data.keyed)) {
+      if (!alive.has(value.runId)) {
+        delete this.data.keyed[key];
+      }
+    }
   }
 
   markStaleRunning(): void {
@@ -59,7 +69,7 @@ export class Store {
             : step,
         );
         if (run.trigger !== "manual") {
-          this.data.keyed[this.runKey(run.workspaceId, run.scheduleId, run.localDate)] = {
+          this.data.keyed[this.runKey(run.workspaceId, run.scheduleId, run.keyedTail ?? run.localDate)] = {
             runId: run.runId,
             status: "failed",
           };

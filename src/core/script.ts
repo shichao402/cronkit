@@ -9,6 +9,7 @@ export async function runScriptStep(options: {
   timeoutMs: number;
   logFile: string;
   abortSignal: AbortSignal;
+  lowPriority?: boolean;
 }): Promise<{ detail: string; code: number | null }> {
   const fileFlag = options.args.findIndex((arg) => arg === "-File");
   if (fileFlag >= 0 && options.args[fileFlag + 1]) {
@@ -25,6 +26,7 @@ export async function runScriptStep(options: {
     timeoutMs: options.timeoutMs,
     logFile: options.logFile,
     abortSignal: options.abortSignal,
+    lowPriority: options.lowPriority,
   }).done;
 
   if (result.cancelled) {

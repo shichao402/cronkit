@@ -49,21 +49,55 @@ function render(snapshot: Snapshot): void {
     err.classList.add("hidden");
   }
 
+  const exitWarn = $("exit-warn");
+  if (snapshot.exitWarnsRunning) {
+    exitWarn.classList.remove("hidden");
+  } else {
+    exitWarn.classList.add("hidden");
+  }
+
   $("workspaces").innerHTML = snapshot.workspaces
     .map((item) => {
-      const next = item.autoScheduled ? `下次 ${item.nextRun ?? "—"}` : "仅手动";
-      const last = item.lastRun ? `${item.lastRun.trigger} / ${item.lastRun.status}` : "尚无记录";
+      const next = item.autoScheduled
+        ? `下次 ${item.nextRun ? formatTime(item.nextRun, snapshot.timezone) : "—"}`
+        : "仅手动";
+      const last = item.lastRun
+        ? `${formatTime(item.lastRun.startedAt, snapshot.timezone)} · ${item.lastRun.trigger} / ${item.lastRun.status}`
+        : "尚无记录";
       const action = item.running
         ? `<button class="small" data-cancel="${item.lastRun?.runId ?? ""}">取消</button>`
         : `<button class="small" data-run="${item.id}">运行</button>`;
       return `<article class="card">
         <div class="row">
-          <h3>${item.name}</h3>
+          <h3>${escapeHtml(item.name)}</h3>
           ${badge(item.lastRun?.status)}
         </div>
-        <div class="meta">${item.path}<br>${item.scheduleId} · ${next}<br>最近：${last}</div>
-        <ul class="steps">${item.steps.map((step) => `<li>${step}</li>`).join("")}</ul>
+        <div class="meta">${escapeHtml(item.path)}<br>${escapeHtml(item.scheduleId)} · ${escapeHtml(next)}<br>最近：${escapeHtml(last)}</div>
+        <ul class="steps">${item.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ul>
         <div class="row" style="margin-top:10px">${action}</div>
+      </article>`;
+    })
+    .join("");
+
+  $("toolsets").innerHTML = (snapshot.toolsets ?? [])
+    .map((ts) => {
+      const tools = ts.tools.map((t) => escapeHtml(t.displayName || t.id)).join("、") || "（无）";
+      const status = ts.installed
+        ? ts.depsReady
+          ? `已安装 · SHA ${ts.sha ?? "?"} · schema v${ts.schemaVersion}`
+          : `已安装但依赖未就绪 · ${escapeHtml(ts.error ?? "")}`
+        : `未安装 · ${escapeHtml(ts.error ?? "")}`;
+      const btn =
+        ts.id === "builtin"
+          ? ""
+          : `<button class="small" data-toolset-update="${escapeHtml(ts.id)}">${ts.installed ? "更新" : "下载"}</button>`;
+      return `<article class="card">
+        <div class="row">
+          <h3>${escapeHtml(ts.displayName)}</h3>
+          <span class="badge ${ts.installed && ts.depsReady ? "succeeded" : "failed"}">${ts.id}</span>
+        </div>
+        <div class="meta">${escapeHtml(status)}<br>${escapeHtml(ts.root)}<br>工具：${tools}</div>
+        <div class="row" style="margin-top:10px">${btn}</div>
       </article>`;
     })
     .join("");
@@ -72,17 +106,53 @@ function render(snapshot: Snapshot): void {
     .slice(0, 16)
     .map((run) => {
       const steps = run.steps
-        .map((step) => `${step.type}:${step.status}${step.error ? `(${step.error})` : ""}`)
-        .join(" · ");
+        .map((step) => {
+          const detail = step.error ?? step.outputTail ?? "";
+          return `<div>${escapeHtml(step.summary || step.type)}:${escapeHtml(step.status)}${
+            detail ? ` — ${escapeHtml(detail)}` : ""
+          }</div>`;
+        })
+        .join("");
       return `<article class="run">
         <div class="row">
-          <div class="title">${run.workspaceName}</div>
+          <div class="title">${escapeHtml(run.workspaceName)}</div>
           ${badge(run.status)}
         </div>
-        <div class="meta">${run.localDate} · ${run.trigger} · ${run.scheduleId}<br>${steps}</div>
+        <div class="meta">${escapeHtml(formatTime(run.startedAt, snapshot.timezone))} · ${escapeHtml(run.trigger)} · ${escapeHtml(run.scheduleId)}<br>${steps}</div>
       </article>`;
     })
     .join("");
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => {
+    const entities: Record<string, string> = {
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;",
+    };
+    return entities[char];
+  });
+}
+
+function formatTime(value: string, timezone: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  })
+    .format(date)
+    .replace(/\//g, "-");
 }
 
 async function refresh(): Promise<void> {
@@ -159,6 +229,19 @@ $("workspaces").addEventListener("click", (event) => {
       toast("已请求取消");
     }, "正在取消…");
   }
+});
+
+$("toolsets").addEventListener("click", (event) => {
+  const target = event.target as HTMLElement;
+  const id = target.getAttribute("data-toolset-update");
+  if (!id) {
+    return;
+  }
+  void handle(async () => {
+    const snapshot = (await apiOrThrow().updateToolset(id)) as Snapshot;
+    render(snapshot);
+    toast(`Toolset ${id} 已更新`);
+  }, `正在下载/更新 ${id}…`);
 });
 
 try {
