@@ -1,3 +1,4 @@
+import { GIT_TOOLS, isGitTool, runGitTool } from "../git";
 import { svnCheckAndUpdate } from "../svn";
 import { warmupUnity } from "../unity";
 import { quitIdleApps } from "../idle-quit";
@@ -137,6 +138,7 @@ export const BUILTIN_MANIFEST: ToolsetManifest = {
     svnSwitch,
     svnCopy,
     svnDelete,
+    ...GIT_TOOLS,
     unityWarmup,
     quitIdle,
     script,
@@ -174,6 +176,10 @@ export async function runBuiltinTool(
 
   if (ctx.dryRun) {
     return { detail: `dry-run: ${tool.displayName} ${JSON.stringify(params)}`, code: 0 };
+  }
+
+  if (isGitTool(invocation.tool)) {
+    return runGitTool(invocation.tool, params, ctx);
   }
 
   switch (invocation.tool) {

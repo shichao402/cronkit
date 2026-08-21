@@ -373,18 +373,18 @@ export class Orchestrator extends TypedEmitter {
         const step = job.workspace.steps[i];
         const inv = invocations[i];
         const record = job.run.steps[i];
-        const skipSvn =
-          inv.tool === "svn-update" &&
+        const skipByStrategy =
+          (inv.tool === "svn-update" || inv.tool === "git-pull") &&
           (inv.params.strategy === "disabled" ||
             (inv.params.strategy === "manual" && job.run.trigger !== "manual"));
 
-        record.status = skipSvn ? "skipped" : "running";
+        record.status = skipByStrategy ? "skipped" : "running";
         record.startedAt = nowIso();
         this.runLog(job, `步骤开始 #${i} ${record.summary}`);
         this.store.upsertRun(job.run, job.persistKey);
         this.emitChange();
 
-        if (skipSvn) {
+        if (skipByStrategy) {
           record.finishedAt = nowIso();
           record.error = undefined;
           record.outputTail = "按当前 strategy/触发方式跳过";
@@ -623,7 +623,7 @@ function stepAttempts(inv: ToolInvocation, dataDir: string): number {
     return 1;
   }
   const fallback =
-    inv.tool === "svn-update" || inv.tool === "unity-warmup" ? 1 : 0;
+    inv.tool === "svn-update" || inv.tool === "git-pull" || inv.tool === "unity-warmup" ? 1 : 0;
   return (inv.retry ?? fallback) + 1;
 }
 

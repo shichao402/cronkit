@@ -96,6 +96,23 @@ workspaces:
           args: ["-NoProfile", "-Command", "Write-Host osg-build-example placeholder"]
         timeout: 1m
 
+  - id: git-repo-example
+    name: Git 仓库（演示）
+    path: fixtures/git-wc
+    steps:
+      - type: toolset
+        toolsetId: builtin
+        tool: git-status
+        timeout: 1m
+      - type: toolset
+        toolsetId: builtin
+        tool: git-pull
+        with:
+          strategy: follow-latest
+          ffOnly: true
+        timeout: 15m
+        retry: 1
+
   - id: rider-idle-quit
     name: Rider 空闲退出（演示）
     path: fixtures/wc

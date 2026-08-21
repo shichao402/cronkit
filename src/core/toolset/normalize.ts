@@ -97,8 +97,14 @@ export function summarizeInvocation(inv: ToolInvocation): string {
   if (inv.toolsetId === "builtin") {
     const tool = getBuiltinTool(inv.tool);
     const name = tool?.displayName ?? inv.tool;
-    if (inv.tool === "svn-update") {
+    if (inv.tool === "svn-update" || inv.tool === "git-pull") {
       return `${name} (${String(inv.params.strategy ?? "")})`;
+    }
+    if (inv.tool === "git-checkout") {
+      return `${name} (${String(inv.params.ref ?? "")})`;
+    }
+    if (inv.tool === "git-push") {
+      return `${name} (${String(inv.params.remote ?? "origin")})`;
     }
     if (inv.tool === "quit-idle") {
       const names = Array.isArray(inv.params.processNames)
