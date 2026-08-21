@@ -1,17 +1,18 @@
-import { app, BrowserWindow, ipcMain, Menu, Notification, Tray, nativeImage } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, Menu, Notification, Tray, nativeImage } from "electron";
 import { writeFileSync } from "node:fs";
 import path from "node:path";
 import { ensureUserConfig } from "../core/bootstrap";
 import { Orchestrator } from "../core/orchestrator";
 import { defaultDataDir } from "../core/paths";
 import { installOrUpdateToolset, rememberToolsetSha } from "../core/toolset";
-import type { Snapshot } from "../shared/types";
+import type { IconTheme, Snapshot, TrayState } from "../shared/types";
 import { openPathReliable } from "./open-path";
 
 let tray: Tray | undefined;
 let window: BrowserWindow | undefined;
 let orch: Orchestrator;
 let quitting = false;
+let appliedTheme: IconTheme | undefined;
 
 function resource(...parts: string[]): string {
   if (app.isPackaged) {
@@ -20,11 +21,33 @@ function resource(...parts: string[]): string {
   return path.join(app.getAppPath(), "resources", ...parts);
 }
 
-function iconFor(state: Snapshot["appState"]) {
-  const file = state === "running" ? "icon-running.png" : state === "failed" ? "icon-failed.png" : "icon-idle.png";
-  const image = nativeImage.createFromPath(resource(file));
+function currentTheme(): IconTheme {
+  return orch?.store.data.iconTheme ?? "light";
+}
+
+// Scheduler off is not the same thing as nothing to do, so the tray tells them apart.
+function trayStateOf(snap: Snapshot): TrayState {
+  if (snap.appState === "running") {
+    return "running";
+  }
+  if (snap.appState === "failed") {
+    return "failed";
+  }
+  return snap.schedulerEnabled ? "idle" : "paused";
+}
+
+function trayIcon(theme: IconTheme, state: TrayState) {
+  const image = nativeImage.createFromPath(resource(`tray-${theme}-${state}.png`));
   if (image.isEmpty()) {
-    return nativeImage.createFromPath(resource("icon-idle.png"));
+    return nativeImage.createFromPath(resource("tray-light-idle.png"));
+  }
+  return image;
+}
+
+function appIcon(theme: IconTheme) {
+  const image = nativeImage.createFromPath(resource(`app-${theme}.png`));
+  if (image.isEmpty()) {
+    return nativeImage.createFromPath(resource("app-light.png"));
   }
   return image;
 }
@@ -35,14 +58,14 @@ function preloadPath(): string {
 
 function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
-    width: 980,
-    height: 680,
-    minWidth: 840,
-    minHeight: 540,
+    width: 1100,
+    height: 760,
+    minWidth: 920,
+    minHeight: 600,
     title: "工作目录编排器",
     backgroundColor: "#121417",
     autoHideMenuBar: true,
-    icon: resource("icon-idle.png"),
+    icon: appIcon(currentTheme()),
     webPreferences: {
       preload: preloadPath(),
       contextIsolation: true,
@@ -65,15 +88,31 @@ function createWindow(): BrowserWindow {
 }
 
 function pushSnapshot(): void {
-  if (!window || window.isDestroyed()) {
-    return;
-  }
   const snap = orch.snapshot();
-  window.webContents.send("snapshot", snap);
-  tray?.setImage(iconFor(snap.appState));
-  const label =
-    snap.appState === "running" ? "运行中" : snap.appState === "failed" ? "有失败" : "空闲";
-  tray?.setToolTip(`工作目录编排器 · ${label}`);
+  if (window && !window.isDestroyed()) {
+    window.webContents.send("snapshot", snap);
+  }
+  applyIcons(snap);
+}
+
+const TRAY_LABELS: Record<TrayState, string> = {
+  idle: "空闲",
+  running: "运行中",
+  failed: "有失败",
+  paused: "已停用",
+};
+
+function applyIcons(snap: Snapshot): void {
+  const state = trayStateOf(snap);
+  tray?.setImage(trayIcon(snap.iconTheme, state));
+  tray?.setToolTip(`工作目录编排器 · ${TRAY_LABELS[state]}`);
+  if (snap.iconTheme !== appliedTheme) {
+    appliedTheme = snap.iconTheme;
+    applyTrayMenu();
+    if (window && !window.isDestroyed()) {
+      window.setIcon(appIcon(snap.iconTheme));
+    }
+  }
 }
 
 function showWindow(): void {
@@ -142,13 +181,34 @@ async function runSelfTest(win: BrowserWindow): Promise<void> {
   }
 }
 
-function setupTray(): void {
-  tray = new Tray(iconFor("idle"));
+function applyTrayMenu(): void {
+  if (!tray) {
+    return;
+  }
+  const theme = currentTheme();
   const menu = Menu.buildFromTemplate([
     { label: "打开面板", click: () => showWindow() },
     { label: "立即补跑", click: () => orch.catchUpNow() },
     { type: "separator" },
-      {
+    {
+      label: "图标主题",
+      submenu: [
+        {
+          label: "浅色",
+          type: "radio",
+          checked: theme === "light",
+          click: () => orch.setIconTheme("light"),
+        },
+        {
+          label: "深色",
+          type: "radio",
+          checked: theme === "dark",
+          click: () => orch.setIconTheme("dark"),
+        },
+      ],
+    },
+    { type: "separator" },
+    {
       label: "退出",
       click: () => {
         const snap = orch.snapshot();
@@ -163,6 +223,11 @@ function setupTray(): void {
     },
   ]);
   tray.setContextMenu(menu);
+}
+
+function setupTray(): void {
+  tray = new Tray(trayIcon(currentTheme(), "idle"));
+  applyTrayMenu();
   tray.on("click", () => showWindow());
 }
 
@@ -216,6 +281,21 @@ if (!gotLock) {
       orch.reloadConfig();
       return orch.snapshot();
     });
+    ipcMain.handle("getConfigEditor", () => orch.getConfigEditor());
+    ipcMain.handle("validateConfig", (_e, text: string) => orch.validateConfigText(text));
+    ipcMain.handle("saveConfigText", (_e, text: string) => orch.saveConfigText(text));
+    ipcMain.handle("saveConfigDraft", (_e, draft) => orch.saveConfigDraft(draft));
+    ipcMain.handle("pickFolder", async (event) => {
+      const win = BrowserWindow.fromWebContents(event.sender);
+      const options = { properties: ["openDirectory" as const] };
+      const result = win
+        ? await dialog.showOpenDialog(win, options)
+        : await dialog.showOpenDialog(options);
+      if (result.canceled || result.filePaths.length === 0) {
+        return null;
+      }
+      return result.filePaths[0];
+    });
     ipcMain.handle("openConfig", () => openPathReliable(orch.configPath, "file"));
     ipcMain.handle("openLogs", () => openPathReliable(path.join(orch.dataDir, "logs"), "dir"));
     ipcMain.handle("openDataDir", () => openPathReliable(orch.dataDir, "dir"));
@@ -225,6 +305,9 @@ if (!gotLock) {
     });
     ipcMain.handle("setSchedulerEnabled", (_e, enabled: boolean) => {
       orch.setSchedulerEnabled(enabled);
+    });
+    ipcMain.handle("setIconTheme", (_e, theme: IconTheme) => {
+      orch.setIconTheme(theme === "dark" ? "dark" : "light");
     });
     ipcMain.handle("updateToolset", async (_e, id: string) => {
       const info = await installOrUpdateToolset(id, orch.dataDir);

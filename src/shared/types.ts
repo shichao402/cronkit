@@ -9,6 +9,10 @@ export type RunStatus =
 
 export type Trigger = "schedule" | "catch-up" | "manual";
 
+export type IconTheme = "light" | "dark";
+
+export type TrayState = "idle" | "running" | "failed" | "paused";
+
 export type StepRecord = {
   index: number;
   type: string;
@@ -57,18 +61,83 @@ export type Snapshot = {
   appState: "idle" | "running" | "failed";
   schedulerEnabled: boolean;
   openAtLogin: boolean;
+  iconTheme: IconTheme;
   exitWarnsRunning?: boolean;
-  toolsets?: Array<{
-    id: string;
-    displayName: string;
-    root: string;
-    schemaVersion: number;
-    sha?: string;
-    installed: boolean;
-    depsReady: boolean;
-    error?: string;
-    tools: Array<{ id: string; displayName: string }>;
-  }>;
+  toolsets?: ToolsetView[];
   workspaces: WorkspaceView[];
   runs: RunRecord[];
+};
+
+export type ToolParamView = {
+  name: string;
+  type: "string" | "number" | "boolean" | "string[]" | "enum";
+  required?: boolean;
+  default?: unknown;
+  enum?: string[];
+  description?: string;
+};
+
+export type ToolsetView = {
+  id: string;
+  displayName: string;
+  root: string;
+  schemaVersion: number;
+  sha?: string;
+  installed: boolean;
+  depsReady: boolean;
+  error?: string;
+  tools: Array<{
+    id: string;
+    displayName: string;
+    description?: string;
+    params?: ToolParamView[];
+  }>;
+};
+
+export type EditorStep = {
+  toolsetId: string;
+  tool: string;
+  timeout: string;
+  retry?: number;
+  continueOnError?: boolean;
+  params: Record<string, unknown>;
+};
+
+export type EditorWorkspace = {
+  id: string;
+  name: string;
+  path: string;
+  oncePerDay: boolean;
+  steps: EditorStep[];
+};
+
+export type EditorSchedule = {
+  id: string;
+  description?: string;
+  cron: string;
+  workspaceIds: string[];
+};
+
+export type EditorDraft = {
+  version: 1;
+  timezone: string;
+  runtime: {
+    maxConcurrentRuns: number;
+    catchUpPreviousDays: number;
+    retryFailedOnCatchUp: boolean;
+    releaseOccupants?: boolean;
+    releaseGraceMs?: number;
+  };
+  schedules: EditorSchedule[];
+  workspaces: EditorWorkspace[];
+  reporting: Record<string, unknown>;
+  brain: Record<string, unknown>;
+};
+
+export type ConfigEditorPayload = {
+  path: string;
+  text: string;
+  draft?: EditorDraft;
+  parseError?: string;
+  toolsets: ToolsetView[];
 };

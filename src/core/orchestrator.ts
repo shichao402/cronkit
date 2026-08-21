@@ -1,14 +1,26 @@
 import { randomUUID } from "node:crypto";
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import type { RunRecord, RunStatus, Snapshot, StepRecord, Trigger } from "../shared/types";
+import type {
+  ConfigEditorPayload,
+  EditorDraft,
+  IconTheme,
+  RunRecord,
+  RunStatus,
+  Snapshot,
+  StepRecord,
+  Trigger,
+} from "../shared/types";
 import {
   loadConfig,
+  parseConfigFromText,
+  readConfigText,
   stepWorkingPath,
   toInvocation,
   type AppConfig,
   type Workspace,
 } from "./config";
+import { configToDraft, draftToYaml } from "./config-draft";
 import { TypedEmitter } from "./events";
 import { logsDirIn, normalizePathKey } from "./paths";
 import { buildPlan, previousFire } from "./plan";
@@ -68,6 +80,56 @@ export class Orchestrator extends TypedEmitter {
     this.emitChange();
   }
 
+  getConfigEditor(): ConfigEditorPayload {
+    const text = readConfigText(this.configPath);
+    const toolsets = listInstalledToolsets(this.dataDir);
+    try {
+      const config = parseConfigFromText(text, this.configPath, this.dataDir, { resolvePaths: false });
+      return {
+        path: this.configPath,
+        text,
+        draft: configToDraft(config),
+        toolsets,
+      };
+    } catch (error) {
+      return {
+        path: this.configPath,
+        text,
+        parseError: error instanceof Error ? error.message : String(error),
+        toolsets,
+      };
+    }
+  }
+
+  validateConfigText(text: string): { ok: boolean; error?: string } {
+    try {
+      parseConfigFromText(text, this.configPath, this.dataDir, { resolvePaths: false });
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  saveConfigText(text: string): Snapshot {
+    const checked = this.validateConfigText(text);
+    if (!checked.ok) {
+      throw new Error(checked.error ?? "配置无效");
+    }
+    if (existsSync(this.configPath)) {
+      copyFileSync(this.configPath, `${this.configPath}.bak`);
+    }
+    writeFileSync(this.configPath, text.endsWith("\n") ? text : `${text}\n`, "utf8");
+    this.reloadConfig();
+    if (this.configError) {
+      throw new Error(this.configError);
+    }
+    return this.snapshot();
+  }
+
+  saveConfigDraft(draft: EditorDraft): Snapshot {
+    return this.saveConfigText(draftToYaml(draft));
+  }
+
   start(): void {
     if (this.timer) {
       return;
@@ -91,6 +153,12 @@ export class Orchestrator extends TypedEmitter {
     this.emitChange();
   }
 
+  setIconTheme(theme: IconTheme): void {
+    this.store.data.iconTheme = theme;
+    this.store.flush();
+    this.emitChange();
+  }
+
   snapshot(): Snapshot {
     const plan = this.config ? buildPlan(this.config) : [];
     const runningIds = new Set(
@@ -110,6 +178,7 @@ export class Orchestrator extends TypedEmitter {
       appState,
       schedulerEnabled: this.store.data.schedulerEnabled,
       openAtLogin: this.openAtLogin,
+      iconTheme: this.store.data.iconTheme,
       exitWarnsRunning: runningCount > 0,
       toolsets: listInstalledToolsets(this.dataDir),
       workspaces: plan.map((item) => {

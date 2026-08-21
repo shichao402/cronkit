@@ -164,8 +164,16 @@ export function stepWorkingPath(workspace: Workspace, step: Step | ToolInvocatio
   return path.resolve(workspace.path, sub);
 }
 
-export function loadConfig(filePath: string, dataDir = defaultDataDir()): AppConfig {
-  const raw = readFileSync(filePath, "utf8").replace(/^\uFEFF+/g, "");
+export function readConfigText(filePath: string): string {
+  return readFileSync(filePath, "utf8").replace(/^\uFEFF+/g, "");
+}
+
+export function parseConfigFromText(
+  raw: string,
+  filePath: string,
+  dataDir = defaultDataDir(),
+  options: { resolvePaths?: boolean } = {},
+): AppConfig {
   const parsed = parseYaml(raw);
   const result = configSchema.safeParse(parsed);
   if (!result.success) {
@@ -176,9 +184,11 @@ export function loadConfig(filePath: string, dataDir = defaultDataDir()): AppCon
   }
 
   const config = result.data;
-  const configDir = path.dirname(path.resolve(filePath));
-  for (const workspace of config.workspaces) {
-    workspace.path = path.resolve(configDir, workspace.path);
+  if (options.resolvePaths !== false) {
+    const configDir = path.dirname(path.resolve(filePath));
+    for (const workspace of config.workspaces) {
+      workspace.path = path.resolve(configDir, workspace.path);
+    }
   }
 
   const workspaceIds = new Set(config.workspaces.map((w) => w.id));
@@ -207,7 +217,6 @@ export function loadConfig(filePath: string, dataDir = defaultDataDir()): AppCon
       for (const err of errors) {
         toolErrors.push(`  - workspaces.${workspace.id}.steps[${index}]: ${err}`);
       }
-      // External toolset must be installed when referenced.
       if (inv.toolsetId !== "builtin" && !resolveTool(inv.toolsetId, inv.tool, dataDir)) {
         toolErrors.push(
           `  - workspaces.${workspace.id}.steps[${index}]: toolset ${inv.toolsetId} 未安装或缺少工具 ${inv.tool}`,
@@ -220,6 +229,10 @@ export function loadConfig(filePath: string, dataDir = defaultDataDir()): AppCon
   }
 
   return config;
+}
+
+export function loadConfig(filePath: string, dataDir = defaultDataDir()): AppConfig {
+  return parseConfigFromText(readConfigText(filePath), filePath, dataDir);
 }
 
 export function mkdirp(dir: string): void {

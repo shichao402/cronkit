@@ -1,6 +1,9 @@
 import type { Snapshot } from "../shared/types";
+import { bindConfigEditor, openConfigEditor } from "./config-editor";
 
 const $ = <T extends HTMLElement>(id: string) => document.getElementById(id) as T;
+
+let currentView: "dash" | "config" = "dash";
 
 function toast(message: string, fail = false): void {
   const el = $("toast");
@@ -32,14 +35,42 @@ function badge(status?: string): string {
   return `<span class="badge ${status}">${map[status] ?? status}</span>`;
 }
 
+function setView(view: "dash" | "config"): void {
+  currentView = view;
+  $("view-dash").classList.toggle("hidden", view !== "dash");
+  $("view-config").classList.toggle("hidden", view !== "config");
+  document.querySelectorAll(".tabs .tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.getAttribute("data-view") === view);
+  });
+}
+
+async function showConfig(workspaceId?: string): Promise<void> {
+  setView("config");
+  await openConfigEditor(workspaceId);
+}
+
+// Mirrors the tray icon states so the panel and the tray never disagree.
+function renderStatePill(snapshot: Snapshot): void {
+  const paused = snapshot.appState === "idle" && !snapshot.schedulerEnabled;
+  const state = paused ? "paused" : snapshot.appState;
+  const labels: Record<string, string> = {
+    running: "运行中",
+    failed: "今日有失败",
+    paused: "已停用",
+    idle: "空闲",
+  };
+  const pill = $("app-state");
+  pill.className = `status-pill ${state}`;
+  pill.textContent = labels[state];
+}
+
 function render(snapshot: Snapshot): void {
   $("subtitle").textContent = snapshot.configPath;
-  const pill = $("app-state");
-  pill.className = `status-pill ${snapshot.appState}`;
-  pill.textContent = snapshot.appState === "running" ? "运行中" : snapshot.appState === "failed" ? "今日有失败" : "空闲";
+  renderStatePill(snapshot);
 
   ($("scheduler") as HTMLInputElement).checked = snapshot.schedulerEnabled;
   ($("login") as HTMLInputElement).checked = snapshot.openAtLogin;
+  ($("icon-theme") as HTMLSelectElement).value = snapshot.iconTheme;
 
   const err = $("config-error");
   if (snapshot.configError) {
@@ -74,7 +105,7 @@ function render(snapshot: Snapshot): void {
         </div>
         <div class="meta">${escapeHtml(item.path)}<br>${escapeHtml(item.scheduleId)} · ${escapeHtml(next)}<br>最近：${escapeHtml(last)}</div>
         <ul class="steps">${item.steps.map((step) => `<li>${escapeHtml(step)}</li>`).join("")}</ul>
-        <div class="row" style="margin-top:10px">${action}</div>
+        <div class="row actions">${action}<button class="small" data-edit="${escapeHtml(item.id)}">编辑配置</button></div>
       </article>`;
     })
     .join("");
@@ -97,7 +128,7 @@ function render(snapshot: Snapshot): void {
           <span class="badge ${ts.installed && ts.depsReady ? "succeeded" : "failed"}">${ts.id}</span>
         </div>
         <div class="meta">${escapeHtml(status)}<br>${escapeHtml(ts.root)}<br>工具：${tools}</div>
-        <div class="row" style="margin-top:10px">${btn}</div>
+        <div class="row actions">${btn}</div>
       </article>`;
     })
     .join("");
@@ -171,18 +202,32 @@ async function handle(action: () => Promise<void>, doing: string): Promise<void>
   }
 }
 
+document.querySelector(".tabs")?.addEventListener("click", (event) => {
+  const view = (event.target as HTMLElement).getAttribute("data-view") as "dash" | "config" | null;
+  if (view === "dash") {
+    setView("dash");
+  }
+  if (view === "config") {
+    void handle(() => showConfig(), "正在打开配置…");
+  }
+});
+
+$("subtitle").addEventListener("click", () =>
+  handle(async () => {
+    const result = await apiOrThrow().openConfig();
+    if (!result.ok) {
+      throw new Error(result.error ?? "无法打开配置");
+    }
+    toast("已打开配置文件");
+  }, "正在打开配置…"),
+);
+
 $("catchup").addEventListener("click", () =>
   handle(async () => {
     const snapshot = (await apiOrThrow().catchUp()) as Snapshot;
     render(snapshot);
     toast("已检查补跑队列");
   }, "正在检查补跑…"),
-);
-$("reload").addEventListener("click", () =>
-  handle(async () => {
-    render(await apiOrThrow().reloadConfig());
-    toast("配置已重新加载");
-  }, "正在重新加载配置…"),
 );
 $("open-config").addEventListener("click", () =>
   handle(async () => {
@@ -210,11 +255,19 @@ $("login").addEventListener("change", (event) => {
   const on = (event.target as HTMLInputElement).checked;
   void handle(() => apiOrThrow().setOpenAtLogin(on) as Promise<void>, on ? "已设置登录启动" : "已取消登录启动");
 });
+$("icon-theme").addEventListener("change", (event) => {
+  const theme = (event.target as HTMLSelectElement).value === "dark" ? "dark" : "light";
+  void handle(
+    () => apiOrThrow().setIconTheme(theme) as Promise<void>,
+    theme === "dark" ? "已切换深色图标" : "已切换浅色图标",
+  );
+});
 
 $("workspaces").addEventListener("click", (event) => {
   const target = event.target as HTMLElement;
   const workspaceId = target.getAttribute("data-run");
   const cancelId = target.getAttribute("data-cancel");
+  const editId = target.getAttribute("data-edit");
   if (workspaceId) {
     void handle(async () => {
       const snapshot = (await apiOrThrow().runWorkspace(workspaceId)) as Snapshot;
@@ -228,6 +281,9 @@ $("workspaces").addEventListener("click", (event) => {
       await refresh();
       toast("已请求取消");
     }, "正在取消…");
+  }
+  if (editId) {
+    void handle(() => showConfig(editId), "正在打开配置…");
   }
 });
 
@@ -245,7 +301,19 @@ $("toolsets").addEventListener("click", (event) => {
 });
 
 try {
-  apiOrThrow().onSnapshot(render);
+  const api = apiOrThrow();
+  bindConfigEditor({
+    api,
+    toast,
+    onSaved: refresh,
+  });
+  api.onSnapshot((snapshot) => {
+    if (currentView === "dash") {
+      render(snapshot);
+    } else {
+      renderStatePill(snapshot);
+    }
+  });
   void refresh();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);

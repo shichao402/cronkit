@@ -9,44 +9,78 @@
     <header class="top">
       <div>
         <h1>工作目录编排器</h1>
-        <p id="subtitle" class="muted">正在加载…</p>
+        <p id="subtitle" class="muted path-link" title="点击打开配置文件">正在加载…</p>
       </div>
-      <div class="status-pill" id="app-state">空闲</div>
+      <div class="header-right">
+        <nav class="tabs" role="tablist">
+          <button type="button" class="tab active" data-view="dash">仪表盘</button>
+          <button type="button" class="tab" data-view="config">配置</button>
+        </nav>
+        <div class="status-pill" id="app-state">空闲</div>
+      </div>
     </header>
-
-    <section class="toolbar">
-      <label class="toggle">
-        <input type="checkbox" id="scheduler" />
-        启用自动调度
-      </label>
-      <label class="toggle">
-        <input type="checkbox" id="login" />
-        登录时启动
-      </label>
-      <button type="button" id="catchup">立即补跑</button>
-      <button type="button" id="reload">重新加载配置</button>
-      <button type="button" class="ghost" id="open-config">打开配置</button>
-      <button type="button" class="ghost" id="open-logs">打开日志</button>
-    </section>
 
     <p id="toast" class="toast hidden"></p>
     <p id="config-error" class="error hidden"></p>
     <p id="exit-warn" class="error hidden">有任务正在运行：退出程序会中断当前任务。</p>
 
-    <main>
-      <section>
-        <h2>今日计划</h2>
-        <div id="workspaces" class="cards"></div>
+    <section id="view-dash">
+      <section class="toolbar">
+        <label class="toggle">
+          <input type="checkbox" id="scheduler" />
+          启用自动调度
+        </label>
+        <label class="toggle">
+          <input type="checkbox" id="login" />
+          登录时启动
+        </label>
+        <label class="toggle">
+          图标主题
+          <select id="icon-theme">
+            <option value="light">浅色</option>
+            <option value="dark">深色</option>
+          </select>
+        </label>
+        <button type="button" id="catchup">立即补跑</button>
+        <button type="button" class="ghost" id="open-logs">打开日志</button>
       </section>
-      <section>
-        <h2>Toolset</h2>
-        <div id="toolsets" class="cards"></div>
+
+      <div class="dash-grid">
+        <div class="dash-main">
+          <section>
+            <h2>今日计划</h2>
+            <div id="workspaces" class="cards"></div>
+          </section>
+          <section>
+            <h2>最近执行</h2>
+            <div id="runs" class="runs"></div>
+          </section>
+        </div>
+        <aside>
+          <section>
+            <h2>Toolset</h2>
+            <div id="toolsets" class="cards"></div>
+          </section>
+        </aside>
+      </div>
+    </section>
+
+    <section id="view-config" class="hidden">
+      <section class="toolbar config-bar">
+        <span id="config-dirty" class="muted">未修改</span>
+        <button type="button" id="config-save">保存并生效</button>
+        <button type="button" class="ghost" id="config-reload-disk">从磁盘重新加载</button>
+        <button type="button" class="ghost" id="open-config">用外部编辑器打开</button>
       </section>
-      <section>
-        <h2>最近执行</h2>
-        <div id="runs" class="runs"></div>
-      </section>
-    </main>
+      <nav class="subtabs" id="config-subtabs">
+        <button type="button" class="tab active" data-panel="workspaces">工作目录</button>
+        <button type="button" class="tab" data-panel="schedules">计划</button>
+        <button type="button" class="tab" data-panel="runtime">运行时</button>
+        <button type="button" class="tab" data-panel="yaml">YAML</button>
+      </nav>
+      <p id="config-hint" class="hint hidden"></p>
+      <div id="config-body"></div>
+    </section>
 
     <script type="module" src="./renderer.ts"></script>
   </body>

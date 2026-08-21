@@ -1,11 +1,12 @@
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { statePathIn } from "./paths";
-import type { RunRecord, RunStatus } from "../shared/types";
+import type { IconTheme, RunRecord, RunStatus } from "../shared/types";
 
 export type PersistState = {
   version: 1;
   schedulerEnabled: boolean;
+  iconTheme: IconTheme;
   keyed: Record<string, { runId: string; status: RunStatus }>;
   runs: RunRecord[];
 };
@@ -13,6 +14,7 @@ export type PersistState = {
 const EMPTY: PersistState = {
   version: 1,
   schedulerEnabled: false,
+  iconTheme: "light",
   keyed: {},
   runs: [],
 };
@@ -94,6 +96,7 @@ export class Store {
       parsed.keyed ??= {};
       parsed.runs ??= [];
       parsed.schedulerEnabled ??= false;
+      parsed.iconTheme = parsed.iconTheme === "dark" ? "dark" : "light";
       return parsed;
     } catch {
       return structuredClone(EMPTY);
