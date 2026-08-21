@@ -1,6 +1,6 @@
 # 工作目录编排器
 
-Windows 托盘程序：按 YAML 调度 SVN 更新、Unity 预热和本地脚本。
+Windows 托盘程序：按 YAML 调度 SVN 更新、Unity 预热和本地脚本。配置以**自动化任务**为主（触发器 + 一个或多个目标目录与步骤）。
 
 项目文档在 [`document/`](document/README.md)（adr / architecture / roadmap）。脚本在 `scripts/`。
 
@@ -12,7 +12,7 @@ npm install
 npm start
 ```
 
-首次启动会在 `%APPDATA%\workspace-orchestrator\config.yaml` 写入一份探测到的本机配置。默认**不启用自动调度**，避免未经确认就 `svn update`。
+首次启动会在 `%APPDATA%\cronkit\config.yaml` 写入一份探测到的本机配置（v2）。若本机还有旧目录 `%APPDATA%\workspace-orchestrator`，会把配置、状态、日志和 toolset 迁过去。打开旧 v1 配置会在内存中迁移预览，**点保存**后才写成 v2。默认**不启用自动调度**，避免未经确认就 `svn update`。
 
 关闭窗口会缩到托盘。托盘右键可退出。
 
@@ -20,9 +20,16 @@ npm start
 
 ```bat
 npm run ui-preview
+:: 可选场景：?scenario=empty|broken|migrate|conflict|validate-fail
 ```
 
 说明在 [`tools/ui-preview/README.md`](tools/ui-preview/README.md)。
+
+## 测试
+
+```bat
+npm test
+```
 
 ## 打包 exe
 
@@ -40,12 +47,16 @@ npm run dist
 ```bat
 npm run cli -- validate
 npm run cli -- status
-npm run cli -- run --workspace osg-trunk1 --dry-run
+npm run cli -- run --target osg-trunk1 --dry-run
 npm run cli -- run --workspace osg-trunk1
+npm run cli -- run --task after-midnight
 ```
+
+`--workspace` 仍可用，等同 `--target`（目标目录 id）。
 
 ## 配置要点
 
-- `svn-update.strategy`: `follow-latest` / `manual` / `disabled`
-- Unity 工程若在 SVN 根下的 `Project/`，在 `unity-warmup` 上写 `path: Project`
+- 顶层是 `tasks`；步骤写 `uses: builtin/svn-update`（也兼容旧 `type:` 写法，保存后会规范化）
+- `svn-update` 的 `with.strategy`: `follow-latest` / `manual` / `disabled`
+- Unity 工程若在 SVN 根下的 `Project/`，在步骤上写 `path: Project`
 - 密钥不要写入 YAML

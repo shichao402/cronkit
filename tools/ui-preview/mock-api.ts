@@ -1,10 +1,18 @@
 import type { DesktopApi } from "../../src/renderer/global";
-import type { ConfigEditorPayload, Snapshot, ThemePref } from "../../src/shared/types";
+import type {
+  ConfigEditorPayload,
+  EditorDraft,
+  SaveConfigResult,
+  Snapshot,
+  ThemePref,
+} from "../../src/shared/types";
+import { draftToYaml } from "../../src/shared/draft-yaml";
 
 const now = Date.now();
 const iso = (offsetMs: number): string => new Date(now + offsetMs).toISOString();
 const day = new Date(now).toISOString().slice(0, 10);
 const light = new URLSearchParams(location.search).get("theme") === "light";
+const scenario = new URLSearchParams(location.search).get("scenario") ?? "ok";
 
 const snapshot: Snapshot = {
   configPath: "C:/Users/firoyang/AppData/Roaming/cronkit/config.yaml",
@@ -25,26 +33,41 @@ const snapshot: Snapshot = {
       installed: true,
       depsReady: true,
       tools: [
-        { id: "svn-cleanup", displayName: "SVN 清理" },
-        { id: "svn-update", displayName: "SVN 更新" },
-        { id: "unity-warmup", displayName: "Unity 预热" },
-        { id: "run-script", displayName: "运行脚本" },
-        { id: "kill-process", displayName: "结束进程" },
-      ],
-    },
-    {
-      id: "osgtoolset",
-      displayName: "OSGToolset",
-      root: "C:/Users/firoyang/AppData/Roaming/cronkit/toolsets/osgtoolset",
-      schemaVersion: 1,
-      sha: "3f7a91c4d2b8",
-      installed: true,
-      depsReady: false,
-      error: "缺少 Python 依赖 lxml",
-      tools: [
-        { id: "predowload", displayName: "预下载资源" },
-        { id: "cpp-profiler", displayName: "C++ Profiler" },
-        { id: "changelog", displayName: "生成变更日志" },
+        {
+          id: "svn-update",
+          displayName: "SVN 更新",
+          params: [
+            {
+              name: "strategy",
+              type: "enum",
+              enum: ["follow-latest", "manual", "disabled"],
+              required: true,
+              default: "follow-latest",
+            },
+            { name: "onConflict", type: "enum", enum: ["fail", "revert"], default: "fail" },
+          ],
+        },
+        {
+          id: "unity-warmup",
+          displayName: "Unity 预热",
+          params: [{ name: "nographics", type: "boolean", default: false }],
+        },
+        {
+          id: "script",
+          displayName: "自定义脚本",
+          params: [
+            { name: "command", type: "string", required: true },
+            { name: "args", type: "string[]", default: [] },
+          ],
+        },
+        {
+          id: "quit-idle",
+          displayName: "空闲退出进程",
+          params: [
+            { name: "processNames", type: "string[]", required: true },
+            { name: "idleFor", type: "string", required: true },
+          ],
+        },
       ],
     },
   ],
@@ -55,15 +78,19 @@ const snapshot: Snapshot = {
       path: "D:/workspace/OSG_Branch1",
       autoScheduled: true,
       scheduleId: "nightly-0210",
+      taskId: "nightly-0210",
+      taskName: "夜间主更新",
       cron: "10 2 * * *",
       nextRun: iso(9 * 3600_000),
       running: true,
-      steps: ["svn-update (timeout 2h)", "unity-warmup (timeout 90m)"],
+      steps: ["SVN 更新 (follow-latest) (timeout 2h)", "Unity 预热 (timeout 90m)"],
       lastRun: {
         runId: "run-1",
         workspaceId: "osg-branch-1",
         workspaceName: "OSG 分支 1",
-        scheduleId: "manual",
+        scheduleId: "nightly-0210",
+        taskId: "nightly-0210",
+        taskName: "夜间主更新",
         localDate: day,
         trigger: "manual",
         status: "running",
@@ -77,15 +104,18 @@ const snapshot: Snapshot = {
       path: "D:/workspace/OSGameCoreOnlyX",
       autoScheduled: true,
       scheduleId: "nightly-0210",
+      taskId: "nightly-0210",
+      taskName: "夜间主更新",
       cron: "10 2 * * *",
       nextRun: iso(9 * 3600_000),
       running: false,
-      steps: ["svn-update (timeout 2h)"],
+      steps: ["SVN 更新 (follow-latest) (timeout 2h)"],
       lastRun: {
         runId: "run-2",
         workspaceId: "osg-core-only",
         workspaceName: "OSGameCoreOnlyX",
         scheduleId: "nightly-0210",
+        taskId: "nightly-0210",
         localDate: day,
         trigger: "schedule",
         status: "failed",
@@ -94,193 +124,87 @@ const snapshot: Snapshot = {
         steps: [],
       },
     },
-    {
-      id: "rider-idle-quit",
-      name: "Rider 空闲退出",
-      path: "C:/Users/firoyang/AppData/Roaming/cronkit",
-      autoScheduled: true,
-      scheduleId: "idle-watch",
-      cron: "*/15 0-7 * * *",
-      nextRun: iso(11 * 60_000),
-      running: false,
-      steps: ["kill-process (timeout 1m)"],
-      lastRun: {
-        runId: "run-3",
-        workspaceId: "rider-idle-quit",
-        workspaceName: "Rider 空闲退出",
-        scheduleId: "idle-watch",
-        localDate: day,
-        trigger: "schedule",
-        status: "skipped",
-        startedAt: iso(-46 * 60_000),
-        finishedAt: iso(-46 * 60_000 + 900),
-        steps: [],
-      },
-    },
-    {
-      id: "sandbox",
-      name: "临时沙箱",
-      path: "D:/workspace/Sandbox_VeryLongPathName_ThatKeepsGoing/Client/Assets",
-      autoScheduled: false,
-      scheduleId: "manual",
-      cron: "-",
-      nextRun: null,
-      running: false,
-      steps: ["run-script (timeout 30m)"],
-    },
   ],
-  runs: [
-    {
-      runId: "run-1",
-      workspaceId: "osg-branch-1",
-      workspaceName: "OSG 分支 1",
-      scheduleId: "manual",
-      localDate: day,
-      trigger: "manual",
-      status: "running",
-      startedAt: iso(-4 * 60_000),
-      steps: [
-        {
-          index: 0,
-          type: "svn-update",
-          status: "succeeded",
-          summary: "svn-update follow-latest",
-          startedAt: iso(-4 * 60_000),
-          finishedAt: iso(-90_000),
-          exitCode: 0,
-          outputTail:
-            "Updating '.':\nU    Assets/Scripts/Gameplay/CombatResolver.cs\nUpdated to revision 772158.",
-        },
-        {
-          index: 1,
-          type: "unity-warmup",
-          status: "running",
-          summary: "unity-warmup 6000.0.58f1",
-          startedAt: iso(-90_000),
-        },
-      ],
-    },
-    {
-      runId: "run-2",
-      workspaceId: "osg-core-only",
-      workspaceName: "OSGameCoreOnlyX",
-      scheduleId: "nightly-0210",
-      localDate: day,
-      trigger: "schedule",
-      status: "failed",
-      startedAt: iso(-3 * 3600_000),
-      finishedAt: iso(-3 * 3600_000 + 214_000),
-      steps: [
-        {
-          index: 0,
-          type: "svn-update",
-          status: "failed",
-          summary: "svn-update follow-latest",
-          startedAt: iso(-3 * 3600_000),
-          finishedAt: iso(-3 * 3600_000 + 214_000),
-          exitCode: 1,
-          error:
-            "svn: E155037: Previous operation has not finished; run 'cleanup' if it was interrupted",
-        },
-      ],
-    },
-    {
-      runId: "run-3",
-      workspaceId: "rider-idle-quit",
-      workspaceName: "Rider 空闲退出",
-      scheduleId: "idle-watch",
-      localDate: day,
-      trigger: "schedule",
-      status: "skipped",
-      startedAt: iso(-46 * 60_000),
-      finishedAt: iso(-46 * 60_000 + 900),
-      steps: [
-        {
-          index: 0,
-          type: "kill-process",
-          status: "skipped",
-          summary: "kill-process rider64",
-          startedAt: iso(-46 * 60_000),
-          finishedAt: iso(-46 * 60_000 + 900),
-          outputTail: "idle 7s from 3600s，未达到阈值，本次跳过",
-        },
-      ],
-    },
-    {
-      runId: "run-4",
-      workspaceId: "osg-branch-1",
-      workspaceName: "OSG 分支 1",
-      scheduleId: "nightly-0210",
-      localDate: day,
-      trigger: "catch-up",
-      status: "succeeded",
-      startedAt: iso(-9 * 3600_000),
-      finishedAt: iso(-9 * 3600_000 + 1_842_000),
-      steps: [
-        {
-          index: 0,
-          type: "svn-update",
-          status: "succeeded",
-          summary: "svn-update follow-latest",
-          startedAt: iso(-9 * 3600_000),
-          finishedAt: iso(-9 * 3600_000 + 402_000),
-          exitCode: 0,
-          outputTail: "Updated to revision 771904.",
-        },
-        {
-          index: 1,
-          type: "unity-warmup",
-          status: "succeeded",
-          summary: "unity-warmup 6000.0.58f1",
-          startedAt: iso(-9 * 3600_000 + 402_000),
-          finishedAt: iso(-9 * 3600_000 + 1_842_000),
-          exitCode: 0,
-          outputTail: "Unity 已完成导入，退出码 0",
-        },
-      ],
-    },
-  ],
+  runs: [],
 };
+
+const draft: EditorDraft = {
+  version: 2,
+  timezone: "Asia/Shanghai",
+  runtime: {
+    maxConcurrentRuns: 2,
+    catchUpPreviousDays: 1,
+    retryFailedOnCatchUp: true,
+    releaseOccupants: true,
+    releaseGraceMs: 20_000,
+  },
+  tasks: [
+    {
+      id: "nightly-0210",
+      name: "夜间主更新",
+      enabled: true,
+      trigger: { type: "cron", cron: "10 2 * * *" },
+      targets: [
+        {
+          id: "osg-branch-1",
+          name: "OSG 分支 1",
+          path: "D:/workspace/OSG_Branch1",
+          oncePerDay: true,
+          steps: [
+            {
+              toolsetId: "builtin",
+              tool: "svn-update",
+              timeout: "2h",
+              retry: 1,
+              params: { strategy: "follow-latest", onConflict: "fail" },
+            },
+            {
+              toolsetId: "builtin",
+              tool: "unity-warmup",
+              timeout: "90m",
+              params: { nographics: false },
+            },
+          ],
+        },
+        {
+          id: "osg-core-only",
+          name: "OSGameCoreOnlyX",
+          path: "D:/workspace/OSGameCoreOnlyX",
+          oncePerDay: true,
+          steps: [
+            {
+              toolsetId: "builtin",
+              tool: "svn-update",
+              timeout: "2h",
+              params: { strategy: "follow-latest" },
+            },
+          ],
+        },
+      ],
+    },
+  ],
+  reporting: { enabled: false },
+  brain: { enabled: false },
+};
+
+let revision = "mock-rev-1";
+let diskText = draftToYaml(draft);
 
 const editor: ConfigEditorPayload = {
   path: snapshot.configPath,
-  text: `# mock — not a real config file
-version: 1
-timezone: Asia/Shanghai
-`,
+  text: diskText,
+  revision,
   toolsets: snapshot.toolsets ?? [],
-  draft: {
-    version: 1,
-    timezone: "Asia/Shanghai",
-    runtime: { maxConcurrentRuns: 2, catchUpPreviousDays: 1, retryFailedOnCatchUp: true },
-    schedules: [
-      {
-        id: "nightly-0210",
-        description: "夜间主更新",
-        cron: "10 2 * * *",
-        workspaceIds: ["osg-branch-1", "osg-core-only"],
-      },
-      { id: "idle-watch", description: "空闲回收", cron: "*/15 0-7 * * *", workspaceIds: ["rider-idle-quit"] },
-    ],
-    workspaces: snapshot.workspaces.map((item) => ({
-      id: item.id,
-      name: item.name,
-      path: item.path,
-      oncePerDay: true,
-      steps: [
-        {
-          toolsetId: "builtin",
-          tool: "svn-update",
-          timeout: "2h",
-          retry: 1,
-          params: { strategy: "follow-latest", onConflict: "fail" },
-        },
-      ],
-    })),
-    reporting: {},
-    brain: {},
-  },
+  draft: structuredClone(draft),
+  migratedFromV1: scenario === "migrate",
+  migrationWarnings:
+    scenario === "migrate" ? ["workspace shared 被多个 schedule 引用，副本 id 为 shared@b"] : [],
+  parseError: scenario === "broken" ? "配置校验失败: mock\n  - version: 仅支持 1 或 2" : undefined,
 };
+
+if (scenario === "broken") {
+  delete editor.draft;
+}
 
 const ok = { ok: true as const };
 const listeners = new Set<(next: Snapshot) => void>();
@@ -296,18 +220,89 @@ function clone(): Snapshot {
   return structuredClone(snapshot);
 }
 
+function saveOk(nextText: string): SaveConfigResult {
+  diskText = nextText;
+  revision = `mock-rev-${Date.now()}`;
+  editor.text = diskText;
+  editor.revision = revision;
+  editor.draft = structuredClone(draft);
+  editor.parseError = undefined;
+  return { ok: true, snapshot: clone(), revision };
+}
+
 export function installMockApi(): void {
   const api: DesktopApi = {
     getSnapshot: async () => clone(),
     runWorkspace: async () => clone(),
+    runTarget: async () => clone(),
+    runTask: async () => clone(),
     cancelRun: async () => undefined,
     catchUp: async () => clone(),
     reloadConfig: async () => clone(),
-    getConfigEditor: async () => structuredClone(editor),
-    validateConfig: async () => ok,
-    saveConfigText: async () => clone(),
-    saveConfigDraft: async () => clone(),
-    pickFolder: async () => null,
+    getConfigEditor: async () => {
+      if (scenario === "empty") {
+        return {
+          path: snapshot.configPath,
+          text: diskText,
+          revision,
+          toolsets: snapshot.toolsets ?? [],
+          draft: {
+            ...structuredClone(draft),
+            tasks: [],
+          },
+        };
+      }
+      if (scenario === "conflict") {
+        return { ...structuredClone(editor), revision: "stale-rev" };
+      }
+      return structuredClone(editor);
+    },
+    validateConfig: async (text) => {
+      if (scenario === "validate-fail" || text.includes("INVALID")) {
+        return { ok: false, error: "配置校验失败: mock\n  - tasks: 至少需要一个自动化任务" };
+      }
+      return ok;
+    },
+    previewConfig: async (text) => {
+      if (text.includes("INVALID")) {
+        return { ok: false, error: "YAML 无效" };
+      }
+      return { ok: true, draft: structuredClone(draft) };
+    },
+    saveConfigText: async (text, expectedRevision, force) => {
+      if (!force && expectedRevision && expectedRevision !== revision) {
+        return {
+          ok: false,
+          reason: "conflict",
+          error: "磁盘配置已变更",
+          diskRevision: revision,
+          diskText,
+        };
+      }
+      if (text.includes("INVALID")) {
+        return {
+          ok: false,
+          reason: "validation",
+          error: "配置无效",
+          issues: [{ path: "tasks", level: "error", message: "至少需要一个自动化任务" }],
+        };
+      }
+      return saveOk(text);
+    },
+    saveConfigDraft: async (nextDraft, expectedRevision, force) => {
+      if (!force && expectedRevision && expectedRevision !== revision) {
+        return {
+          ok: false,
+          reason: "conflict",
+          error: "磁盘配置已变更",
+          diskRevision: revision,
+          diskText,
+        };
+      }
+      Object.assign(draft, structuredClone(nextDraft));
+      return saveOk(draftToYaml(nextDraft));
+    },
+    pickFolder: async () => "D:/workspace/picked",
     openConfig: async () => ok,
     openLogs: async () => ok,
     openDataDir: async () => ok,

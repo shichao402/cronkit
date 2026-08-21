@@ -96,33 +96,13 @@
           <header class="page-head">
             <div class="page-title">
               <h1>配置</h1>
-              <p class="page-sub">保存前会做完整校验，校验失败不会写盘</p>
+              <p class="page-sub">以自动化任务为主：触发器、目标目录与步骤。保存前完整校验，校验失败不写盘。</p>
             </div>
             <div class="page-actions">
               <button type="button" class="btn btn-quiet" id="open-config" data-icon="external">外部编辑器</button>
             </div>
           </header>
-
-          <nav class="seg seg-wide" id="config-subtabs" role="tablist" aria-label="配置分区">
-            <button type="button" data-panel="workspaces" aria-pressed="true">工作目录</button>
-            <button type="button" data-panel="schedules" aria-pressed="false">计划</button>
-            <button type="button" data-panel="runtime" aria-pressed="false">运行时</button>
-            <button type="button" data-panel="yaml" aria-pressed="false">YAML</button>
-          </nav>
-
-          <p id="config-hint" class="note note-warn hidden"></p>
-          <div id="config-body"></div>
-
-          <div class="action-bar">
-            <span class="dirty" id="config-dirty">未修改</span>
-            <span class="spacer"></span>
-            <button type="button" class="btn btn-quiet" id="config-reload-disk" data-icon="refresh">
-              从磁盘重新加载
-            </button>
-            <button type="button" class="btn btn-primary" id="config-save" data-icon="check">
-              保存并生效<kbd>Ctrl S</kbd>
-            </button>
-          </div>
+          <div id="config-react-root" class="ce-host" data-dirty="0"></div>
         </section>
 
         <section id="view-settings" class="view hidden">

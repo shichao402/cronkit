@@ -1,15 +1,38 @@
-import type { ConfigEditorPayload, EditorDraft, Snapshot, ThemePref } from "../shared/types";
+import type {
+  ConfigEditorPayload,
+  EditorDraft,
+  SaveConfigResult,
+  Snapshot,
+  ThemePref,
+} from "../shared/types";
 
 export type DesktopApi = {
   getSnapshot: () => Promise<Snapshot>;
   runWorkspace: (id: string) => Promise<Snapshot>;
+  runTarget: (id: string) => Promise<Snapshot>;
+  runTask: (id: string) => Promise<Snapshot>;
   cancelRun: (id: string) => Promise<void>;
   catchUp: () => Promise<Snapshot>;
   reloadConfig: () => Promise<Snapshot>;
   getConfigEditor: () => Promise<ConfigEditorPayload>;
   validateConfig: (text: string) => Promise<{ ok: boolean; error?: string }>;
-  saveConfigText: (text: string) => Promise<Snapshot>;
-  saveConfigDraft: (draft: EditorDraft) => Promise<Snapshot>;
+  previewConfig: (text: string) => Promise<{
+    ok: boolean;
+    draft?: EditorDraft;
+    error?: string;
+    migratedFromV1?: boolean;
+    migrationWarnings?: string[];
+  }>;
+  saveConfigText: (
+    text: string,
+    expectedRevision?: string,
+    force?: boolean,
+  ) => Promise<SaveConfigResult>;
+  saveConfigDraft: (
+    draft: EditorDraft,
+    expectedRevision?: string,
+    force?: boolean,
+  ) => Promise<SaveConfigResult>;
   pickFolder: () => Promise<string | null>;
   openConfig: () => Promise<{ ok: boolean; error?: string }>;
   openLogs: () => Promise<{ ok: boolean; error?: string }>;

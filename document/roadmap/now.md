@@ -6,12 +6,13 @@
 
 - 用 `npm run dist` 验证打包后的任务栏固定图标与跳转列表名称（`WorkspaceOrchestrator` / 工作目录编排器），不以 `npm start` 的固定项为准。
 - 保持 `document/` 三块同步：目录或分层一变，先改 architecture，决策则补 ADR。
+- 仪表盘可进一步改成「按任务分组」列表（当前仍是 target 扁平行 + task 名芯片）。
 
 ## 已知缺口
 
 - 开发态固定到任务栏必然是 Electron 默认图标，不修。
 - 固定项图标不跟随浅色/深色主题。
-- 用户数据目录名仍是 `workspace-orchestrator`，与仓库名 `cronkit`、产品名「工作目录编排器」并存；改名要动 AppData、AppUserModelID、builder `appId`，单独立 ADR。
+- YAML 注释在表单保存后不会保留（语义 round-trip 优先）。
 
 ## 明确不做
 

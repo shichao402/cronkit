@@ -7,11 +7,21 @@
 - 入口只在这里；`src/renderer/` 里没有预览文件。
 - `electron-vite` / `electron-builder` 不会打包本目录。
 - 顶部紫色条是故意的，避免和正式面板搞混。
+- 配置页已是 React；mock 支持若干场景查询参数。
 
 ```bat
 npm run ui-preview
 ```
 
-浏览器打开 <http://localhost:5199>。浅色主题加 `?theme=light`。
+浏览器打开 <http://localhost:5199>。
 
-点「运行 / 保存 / 打开目录」只会 toast，不会动磁盘或 SVN。
+| 参数 | 作用 |
+| --- | --- |
+| `?theme=light` | 浅色主题 |
+| `?scenario=empty` | 空任务列表 |
+| `?scenario=broken` | YAML 解析失败 |
+| `?scenario=migrate` | v1 迁移警告 |
+| `?scenario=conflict` | 保存冲突 |
+| `?scenario=validate-fail` | 校验失败 |
+
+点「运行 / 打开目录」只会 toast；配置页的保存走 mock，不会动真实磁盘或 SVN。

@@ -1,12 +1,13 @@
 # 架构概览
 
-Windows 托盘调度器：读 YAML，按 cron 对若干工作目录跑步骤（SVN、Unity 预热、外部 toolset、空闲退出等）。关窗口进托盘，不退出进程。
+Windows 托盘调度器：读 YAML，按 cron/手动触发**自动化任务**；每个任务可挂多个目标目录，目标各自入队执行步骤（SVN、Unity 预热、外部 toolset、空闲退出等）。关窗口进托盘，不退出进程。
 
 ## 进程与模块
 
 ```
 ┌─────────────────────────────────────────┐
-│ renderer  面板 / 配置编辑                 │
+│ renderer  仪表盘 / 设置（原生）            │
+│           配置页（React：任务/目标/YAML）  │
 │ preload   contextIsolation IPC           │
 └─────────────────┬───────────────────────┘
                   │ ipcMain.handle
@@ -18,17 +19,25 @@ Windows 托盘调度器：读 YAML，按 cron 对若干工作目录跑步骤（S
 ┌─────────────────▼───────────────────────┐
 │ core      Orchestrator / Store / Config   │
 │           plan · occupants · toolset      │
+│           config-migrate (v1→v2)          │
 └─────────────────────────────────────────┘
          CLI (src/cli.ts) 走同一套 core
 ```
 
-`src/core` 不引用 electron，详见 [ADR 0002](../adr/0002-electron-core-split.md)。
+`src/core` 不引用 electron，详见 [ADR 0002](../adr/0002-electron-core-split.md)。配置模型见 [ADR 0005](../adr/0005-task-first-config-react-editor.md)。
+
+## 配置模型（v2）
+
+- `tasks[]`：`id` / `name` / `enabled` / `trigger`（`cron` | `manual`）/ `targets[]`
+- `targets[]`：`id` / `name` / `path` / `oncePerDay` / `steps[]`
+- 步骤：`uses: toolset/tool` + `with` / `timeout` / `path` / `args` …
+- 加载 v1 时内存迁移；**保存**才写成 v2
 
 ## 运行时数据
 
 | 路径 | 内容 |
 | --- | --- |
-| `%APPDATA%\workspace-orchestrator\config.yaml` | 用户配置；首次启动探测本机 SVN 工作副本生成 |
+| `%APPDATA%\cronkit\config.yaml` | 用户配置；首次启动探测本机 SVN 工作副本生成 |
 | `state.json` | 调度开关、主题、最近 run |
 | `logs/<date>/<runId>/` | 步骤日志 |
 | `toolsets/<id>/` | 外部 toolset 检出（如 OSGToolset） |
@@ -37,11 +46,12 @@ Windows 托盘调度器：读 YAML，按 cron 对若干工作目录跑步骤（S
 
 ## 一次调度
 
-1. `plan` 按 cron + timezone 算下次触发。
-2. 到期入队；`occupants` 必要时清占用（脚本在 `scripts/`）。
-3. 每个 workspace 的 steps 经 toolset 规范化后执行（builtin 或外部 manifest）。
-4. 结果写入 store 与日志；窗口不可见时失败/完成可弹通知。
-5. 面板只消费 `Snapshot`，不直接跑命令。
+1. `plan` 按启用中的 cron 任务 + timezone 算下次触发。
+2. 到期后对该 task 的每个 target **分别入队**（不是跨目录串行 DAG）。
+3. `occupants` 必要时清占用（脚本在 `scripts/`）。
+4. 每个 target 的 steps 经 toolset 规范化后执行。
+5. 结果写入 store 与日志；窗口不可见时失败/完成可弹通知。
+6. 面板只消费 `Snapshot`，不直接跑命令；配置编辑器显式「保存并生效」。
 
 ## 图标
 

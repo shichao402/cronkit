@@ -1,7 +1,13 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
-import { stepWorkingPath, toInvocation, type AppConfig, type Workspace } from "./config";
+import {
+  findTarget,
+  stepWorkingPath,
+  toInvocation,
+  type AppConfig,
+  type Target,
+} from "./config";
 import { listUnityEditors, readProjectVersion } from "./unity";
 import { probeQuitIdle } from "./idle-quit";
 import { lookupTool, summarizeInvocation, type ToolInvocation } from "./toolset";
@@ -13,23 +19,31 @@ export type StepProbe = {
   detail: string;
 };
 
+/** @deprecated prefer dryRunTarget */
 export function dryRunWorkspace(
   config: AppConfig,
   workspaceId: string,
   dataDir?: string,
-): { workspace: Workspace; probes: StepProbe[] } {
-  const workspace = config.workspaces.find((item) => item.id === workspaceId);
-  if (!workspace) {
-    throw new Error(`未知 workspace: ${workspaceId}`);
+): { workspace: Target; probes: StepProbe[] } {
+  return dryRunTarget(config, workspaceId, dataDir);
+}
+
+export function dryRunTarget(
+  config: AppConfig,
+  targetId: string,
+  dataDir?: string,
+): { workspace: Target; probes: StepProbe[] } {
+  const found = findTarget(config, targetId);
+  if (!found) {
+    throw new Error(`未知 target: ${targetId}`);
   }
-  const probes = workspace.steps.map((step) =>
-    probeInvocation(workspace, toInvocation(step), dataDir),
-  );
-  return { workspace, probes };
+  const { target } = found;
+  const probes = target.steps.map((step) => probeInvocation(target, toInvocation(step), dataDir));
+  return { workspace: target, probes };
 }
 
 function probeInvocation(
-  workspace: Workspace,
+  workspace: Target,
   inv: ToolInvocation,
   dataDir?: string,
 ): StepProbe {

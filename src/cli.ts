@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { ensureUserConfig } from "./core/bootstrap";
-import { loadConfig } from "./core/config";
+import { listTargets, loadConfig } from "./core/config";
 import { Orchestrator } from "./core/orchestrator";
 import { defaultDataDir } from "./core/paths";
 import { buildPlan } from "./core/plan";
@@ -11,6 +11,7 @@ type Args = {
   command: "validate" | "status" | "run" | "catch-up" | "help";
   config?: string;
   workspace?: string;
+  task?: string;
   dryRun: boolean;
 };
 
@@ -36,8 +37,12 @@ function parseArgs(argv: string[]): Args {
       args.config = rest.shift();
       continue;
     }
-    if (token === "--workspace" || token === "-w") {
+    if (token === "--workspace" || token === "-w" || token === "--target") {
       args.workspace = rest.shift();
+      continue;
+    }
+    if (token === "--task" || token === "-t") {
+      args.task = rest.shift();
       continue;
     }
     if (token === "--dry-run") {
@@ -68,10 +73,12 @@ function printHelp(): void {
   npm start
   npm run cli -- validate [--config <yaml>]
   npm run cli -- status [--config <yaml>]
-  npm run cli -- run --workspace <id> [--dry-run] [--config <yaml>]
+  npm run cli -- run --target <id> [--dry-run] [--config <yaml>]
+  npm run cli -- run --workspace <id>   # target 别名
+  npm run cli -- run --task <id> [--config <yaml>]
   npm run cli -- catch-up [--config <yaml>]
 
-默认配置: %APPDATA%/workspace-orchestrator/config.yaml`);
+默认配置: %APPDATA%/cronkit/config.yaml`);
 }
 
 async function main(): Promise<void> {
@@ -85,9 +92,10 @@ async function main(): Promise<void> {
   const config = loadConfig(configPath, dataDir);
 
   if (args.command === "validate") {
+    const targets = listTargets(config);
     console.log(`配置有效: ${configPath}`);
     console.log(
-      `时区 ${config.timezone}  ·  ${config.workspaces.length} 个工作目录  ·  ${config.schedules.length} 个调度`,
+      `时区 ${config.timezone}  ·  ${config.tasks.length} 个任务  ·  ${targets.length} 个目标`,
     );
     return;
   }
@@ -99,8 +107,9 @@ async function main(): Promise<void> {
         ? `下次 ${item.nextRun ? displayTime(item.nextRun, config.timezone) : "(cron 无效)"}`
         : "仅手动";
       console.log(`\n[${item.workspaceId}] ${item.workspaceName}`);
+      console.log(`  任务    ${item.taskId}  ${item.taskName}`);
       console.log(`  路径    ${item.path}`);
-      console.log(`  调度    ${item.scheduleId}  ${item.cron}  ${when}`);
+      console.log(`  调度    ${item.cron}  ${when}`);
       for (const step of item.steps) {
         console.log(`  步骤    ${step}`);
       }
@@ -118,13 +127,27 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (args.task) {
+    if (args.dryRun) {
+      throw new Error("整 task dry-run 请对每个 --target 分别执行");
+    }
+    const runs = await orch.runTask(args.task, "manual");
+    for (const run of runs) {
+      console.log(`${run.status}  ${run.workspaceId}  ${run.runId}`);
+    }
+    if (runs.some((run) => run.status === "failed" || run.status === "cancelled")) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   if (!args.workspace) {
-    throw new Error("run 需要 --workspace <id>");
+    throw new Error("run 需要 --target <id>（或 --workspace / --task）");
   }
 
   if (args.dryRun) {
-    const { dryRunWorkspace } = await import("./core/probe");
-    const { workspace, probes } = dryRunWorkspace(config, args.workspace);
+    const { dryRunTarget } = await import("./core/probe");
+    const { workspace, probes } = dryRunTarget(config, args.workspace);
     console.log(`dry-run ${workspace.id}  ${workspace.name}`);
     let failed = 0;
     for (const probe of probes) {
@@ -140,7 +163,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  const run = await orch.runWorkspace(args.workspace, "manual");
+  const run = await orch.runTarget(args.workspace, "manual");
   console.log(`${run.status}  ${run.workspaceId}  ${run.runId}`);
   for (const step of run.steps) {
     console.log(`  [${step.status}] ${step.summary}${step.error ? `  ${step.error}` : ""}`);

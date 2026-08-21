@@ -1,17 +1,35 @@
 import { contextBridge, ipcRenderer } from "electron";
-import type { ConfigEditorPayload, EditorDraft, Snapshot, ThemePref } from "../shared/types";
+import type {
+  ConfigEditorPayload,
+  EditorDraft,
+  SaveConfigResult,
+  Snapshot,
+  ThemePref,
+} from "../shared/types";
 
 const api = {
   getSnapshot: (): Promise<Snapshot> => ipcRenderer.invoke("getSnapshot"),
   runWorkspace: (id: string) => ipcRenderer.invoke("runWorkspace", id),
+  runTarget: (id: string) => ipcRenderer.invoke("runTarget", id),
+  runTask: (id: string) => ipcRenderer.invoke("runTask", id),
   cancelRun: (id: string) => ipcRenderer.invoke("cancelRun", id),
   catchUp: () => ipcRenderer.invoke("catchUp"),
   reloadConfig: (): Promise<Snapshot> => ipcRenderer.invoke("reloadConfig"),
   getConfigEditor: (): Promise<ConfigEditorPayload> => ipcRenderer.invoke("getConfigEditor"),
   validateConfig: (text: string): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("validateConfig", text),
-  saveConfigText: (text: string): Promise<Snapshot> => ipcRenderer.invoke("saveConfigText", text),
-  saveConfigDraft: (draft: EditorDraft): Promise<Snapshot> => ipcRenderer.invoke("saveConfigDraft", draft),
+  previewConfig: (text: string) => ipcRenderer.invoke("previewConfig", text),
+  saveConfigText: (
+    text: string,
+    expectedRevision?: string,
+    force?: boolean,
+  ): Promise<SaveConfigResult> => ipcRenderer.invoke("saveConfigText", text, expectedRevision, force),
+  saveConfigDraft: (
+    draft: EditorDraft,
+    expectedRevision?: string,
+    force?: boolean,
+  ): Promise<SaveConfigResult> =>
+    ipcRenderer.invoke("saveConfigDraft", draft, expectedRevision, force),
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke("pickFolder"),
   openConfig: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("openConfig"),
   openLogs: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke("openLogs"),

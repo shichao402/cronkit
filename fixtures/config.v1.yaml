@@ -1,0 +1,66 @@
+# v1 fixture for migration tests — do not use as runtime default.
+version: 1
+timezone: Asia/Shanghai
+
+runtime:
+  maxConcurrentRuns: 1
+  catchUpPreviousDays: 0
+  retryFailedOnCatchUp: false
+
+schedules:
+  - id: after-midnight
+    description: 每天凌晨后的例行更新与预热
+    cron: "10 2 * * *"
+    workspaceIds:
+      - trunk-client
+      - tools-scripts
+  - id: rider-idle-watch
+    description: Rider 空闲退出
+    cron: "*/15 0-7 * * *"
+    workspaceIds:
+      - rider-idle-quit
+
+workspaces:
+  - id: trunk-client
+    name: 主干客户端
+    path: fixtures/wc
+    steps:
+      - type: svn-update
+        strategy: follow-latest
+        timeout: 2h
+        retry: 1
+      - type: unity-warmup
+        timeout: 90m
+        path: Project
+  - id: tools-scripts
+    name: 工具脚本
+    path: fixtures/tools-wc
+    steps:
+      - type: script
+        command: powershell
+        args: ["-NoProfile", "-Command", "Write-Host ok"]
+        timeout: 1m
+        continueOnError: true
+  - id: rider-idle-quit
+    name: Rider 空闲
+    path: fixtures/wc
+    oncePerDay: false
+    steps:
+      - type: quit-idle
+        processNames: [rider64]
+        idleFor: 1h
+        timeout: 3m
+  - id: release-only
+    name: 仅手动
+    path: fixtures/wc
+    steps:
+      - type: svn-update
+        strategy: manual
+        timeout: 30m
+
+reporting:
+  enabled: false
+  on: []
+
+brain:
+  enabled: false

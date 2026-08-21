@@ -1,5 +1,5 @@
 import type { ResolvedTheme, RunRecord, Snapshot, ThemePref, ToolsetView, WorkspaceView } from "../shared/types";
-import { bindConfigEditor, isConfigDirty, openConfigEditor } from "./config-editor";
+import { isConfigEditorDirty, mountConfigEditor, openConfigEditorReact } from "./config-editor/mount";
 import { icon, type IconName } from "./icons";
 import {
   dayLabel,
@@ -25,6 +25,11 @@ let latest: Snapshot | undefined;
 let runFilter: RunFilter = "all";
 let dashSignature = "";
 const openRuns = new Set<string>();
+let configMounted = false;
+
+function isConfigDirty(): boolean {
+  return isConfigEditorDirty($("config-react-root"));
+}
 
 /* ==========================================================================
    Toasts — a bottom-right stack so notifications never shift the layout.
@@ -122,12 +127,31 @@ function setView(view: View): void {
   document.querySelector(".content")?.scrollTo({ top: 0 });
 }
 
-async function showConfig(workspaceId?: string): Promise<void> {
+async function showConfig(taskOrTargetId?: string): Promise<void> {
   setView("config");
   if (currentView !== "config") {
     return;
   }
-  await openConfigEditor(workspaceId);
+  ensureConfigMounted();
+  // Prefer matching a task id; dashboard edit buttons still pass target/workspace id.
+  const taskId = latest?.workspaces.find(
+    (item) => item.id === taskOrTargetId || item.taskId === taskOrTargetId,
+  )?.taskId;
+  openConfigEditorReact(taskId ?? taskOrTargetId);
+}
+
+function ensureConfigMounted(): void {
+  if (configMounted) {
+    return;
+  }
+  const api = apiOrThrow();
+  mountConfigEditor($("config-react-root"), {
+    api,
+    toast: (message, fail = false) => void toast(message, fail ? "fail" : "ok"),
+    onSaved: refresh,
+    onDirtyChange: (dirty) => $("nav-dirty").classList.toggle("hidden", !dirty),
+  });
+  configMounted = true;
 }
 
 // Distinct from showConfig: this hands the file to the OS editor instead of
@@ -414,8 +438,10 @@ function renderWorkspaces(snapshot: Snapshot, now: number): void {
     ? items.map((item) => workspaceRow(item, snapshot, now)).join("")
     : emptyState(
         "folder",
-        snapshot.configError ? "配置未加载" : "还没有工作目录",
-        snapshot.configError ? "修好配置文件后这里会列出今日计划。" : "去配置页添加一个工作目录，并把它绑定到某个计划上。",
+        snapshot.configError ? "配置未加载" : "还没有可运行的目标",
+        snapshot.configError
+          ? "修好配置文件后这里会列出今日计划。"
+          : "去配置页添加自动化任务，并挂上工作目录目标。",
         snapshot.configError ? undefined : { label: "打开配置", act: "goto-config" },
       );
 }
@@ -423,8 +449,8 @@ function renderWorkspaces(snapshot: Snapshot, now: number): void {
 function workspaceRow(item: WorkspaceView, snapshot: Snapshot, now: number): string {
   const status = item.running ? "running" : item.lastRun?.status;
   const schedule = item.autoScheduled
-    ? `<span class="chip chip-mono" title="cron: ${escapeHtml(item.cron)}">${escapeHtml(item.scheduleId)}</span>`
-    : `<span class="chip chip-muted">仅手动</span>`;
+    ? `<span class="chip chip-mono" title="任务 ${escapeHtml(item.taskName)} · cron: ${escapeHtml(item.cron)}">${escapeHtml(item.taskName || item.taskId)}</span>`
+    : `<span class="chip chip-muted">仅手动 · ${escapeHtml(item.taskName || item.taskId)}</span>`;
 
   const steps = item.steps
     .map((label) => {
@@ -847,8 +873,7 @@ window.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key.toLowerCase() === "s" && currentView === "config") {
-    event.preventDefault();
-    $("config-save").click();
+    // React editor handles Ctrl+S itself.
     return;
   }
   const view = VIEW_KEYS[event.key];
@@ -865,12 +890,6 @@ window.addEventListener("keydown", (event) => {
 
 try {
   const api = apiOrThrow();
-  bindConfigEditor({
-    api,
-    toast: (message, fail = false) => void toast(message, fail ? "fail" : "ok"),
-    onSaved: refresh,
-    onDirtyChange: (dirty) => $("nav-dirty").classList.toggle("hidden", !dirty),
-  });
   api.onSnapshot((snapshot) => applySnapshot(snapshot));
   window.setInterval(tickTimes, 20_000);
   void refresh();

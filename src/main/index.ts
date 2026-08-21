@@ -256,7 +256,7 @@ if (!gotLock) {
 } else {
   app.on("second-instance", () => showWindow());
   app.whenReady().then(() => {
-    app.setAppUserModelId("com.agentshelpme.workspace-orchestrator");
+    app.setAppUserModelId("com.agentshelpme.cronkit");
     const dataDir = defaultDataDir();
     const configPath = ensureUserConfig(dataDir);
     orch = new Orchestrator({ configPath, dataDir });
@@ -287,7 +287,15 @@ if (!gotLock) {
     setupTray();
     ipcMain.handle("getSnapshot", () => orch.snapshot());
     ipcMain.handle("runWorkspace", (_e, id: string) => {
-      void orch.runWorkspace(id, "manual").catch(() => undefined);
+      void orch.runTarget(id, "manual").catch(() => undefined);
+      return orch.snapshot();
+    });
+    ipcMain.handle("runTarget", (_e, id: string) => {
+      void orch.runTarget(id, "manual").catch(() => undefined);
+      return orch.snapshot();
+    });
+    ipcMain.handle("runTask", (_e, id: string) => {
+      void orch.runTask(id, "manual").catch(() => undefined);
       return orch.snapshot();
     });
     ipcMain.handle("cancelRun", (_e, id: string) => {
@@ -303,8 +311,17 @@ if (!gotLock) {
     });
     ipcMain.handle("getConfigEditor", () => orch.getConfigEditor());
     ipcMain.handle("validateConfig", (_e, text: string) => orch.validateConfigText(text));
-    ipcMain.handle("saveConfigText", (_e, text: string) => orch.saveConfigText(text));
-    ipcMain.handle("saveConfigDraft", (_e, draft) => orch.saveConfigDraft(draft));
+    ipcMain.handle("previewConfig", (_e, text: string) => orch.previewConfigText(text));
+    ipcMain.handle(
+      "saveConfigText",
+      (_e, text: string, expectedRevision?: string, force?: boolean) =>
+        orch.saveConfigTextResult(text, expectedRevision, force === true),
+    );
+    ipcMain.handle(
+      "saveConfigDraft",
+      (_e, draft, expectedRevision?: string, force?: boolean) =>
+        orch.saveConfigDraftResult(draft, expectedRevision, force === true),
+    );
     ipcMain.handle("pickFolder", async (event) => {
       const win = BrowserWindow.fromWebContents(event.sender);
       const options = { properties: ["openDirectory" as const] };

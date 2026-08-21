@@ -1,5 +1,5 @@
 # 本机可跑通的演示配置。路径相对本文件。
-version: 1
+version: 2
 timezone: Asia/Shanghai
 
 runtime:
@@ -7,125 +7,123 @@ runtime:
   catchUpPreviousDays: 0
   retryFailedOnCatchUp: false
 
-schedules:
+tasks:
   - id: after-midnight
-    description: 每天凌晨后的例行更新与预热
-    cron: "10 2 * * *"
-    workspaceIds:
-      - trunk-client
-      - tools-scripts
+    name: 每天凌晨后的例行更新与预热
+    trigger:
+      type: cron
+      cron: "10 2 * * *"
+    targets:
+      - id: trunk-client
+        name: 主干客户端（演示）
+        path: fixtures/wc
+        steps:
+          - uses: builtin/svn-update
+            with:
+              strategy: follow-latest
+              onConflict: revert
+            timeout: 2h
+            retry: 1
+          - uses: builtin/unity-warmup
+            with:
+              nographics: false
+            timeout: 90m
+            retry: 1
+            continueOnError: false
+      - id: tools-scripts
+        name: 工具脚本仓（演示）
+        path: fixtures/tools-wc
+        steps:
+          - uses: builtin/svn-update
+            with:
+              strategy: follow-latest
+            timeout: 30m
+          - uses: builtin/script
+            with:
+              command: powershell
+              args:
+                - "-NoProfile"
+                - "-File"
+                - "scripts/nightly-check.ps1"
+            timeout: 15m
+            continueOnError: true
+
   - id: rider-idle-watch
-    description: 0 点起算，空闲满 1 小时后正常退出 Rider
-    cron: "*/15 0-7 * * *"
-    workspaceIds:
-      - rider-idle-quit
+    name: 0 点起算，空闲满 1 小时后正常退出 Rider
+    trigger:
+      type: cron
+      cron: "*/15 0-7 * * *"
+    targets:
+      - id: rider-idle-quit
+        name: Rider 空闲退出（演示）
+        path: fixtures/wc
+        oncePerDay: false
+        steps:
+          - uses: builtin/quit-idle
+            with:
+              processNames:
+                - rider64
+                - rider
+              idleFor: 1h
+              countIdleFrom: "00:00"
+              until: "08:00"
+            timeout: 3m
 
-workspaces:
-  - id: trunk-client
-    name: 主干客户端（演示）
-    path: fixtures/wc
-    steps:
-      - type: toolset
-        toolsetId: builtin
-        tool: svn-update
-        with:
-          strategy: follow-latest
-          onConflict: revert
-        timeout: 2h
-        retry: 1
-      - type: toolset
-        toolsetId: builtin
-        tool: unity-warmup
-        with:
-          nographics: false
-        timeout: 90m
-        retry: 1
-        continueOnError: false
-
-  - id: release-1.0
+  - id: manual-release-1.0
     name: 发布分支（演示，仅手动）
-    path: fixtures/wc
-    steps:
-      - type: svn-update
-        strategy: manual
-        timeout: 2h
-      - type: unity-warmup
-        timeout: 90m
-        nographics: false
+    trigger:
+      type: manual
+    targets:
+      - id: release-1.0
+        name: 发布分支（演示，仅手动）
+        path: fixtures/wc
+        steps:
+          - uses: builtin/svn-update
+            with:
+              strategy: manual
+            timeout: 2h
+          - uses: builtin/unity-warmup
+            with:
+              nographics: false
+            timeout: 90m
 
-  - id: tools-scripts
-    name: 工具脚本仓（演示）
-    path: fixtures/tools-wc
-    steps:
-      - type: svn-update
-        strategy: follow-latest
-        timeout: 30m
-      - type: script
-        command: "powershell"
-        args:
-          - "-NoProfile"
-          - "-File"
-          - "scripts/nightly-check.ps1"
-        timeout: 15m
-        continueOnError: true
-
-  - id: osg-build-example
+  - id: manual-osg-build-example
     name: OSG 构建示例（需先安装 osg toolset）
-    path: fixtures/wc
-    steps:
-      - type: toolset
-        toolsetId: builtin
-        tool: svn-update
-        with: { strategy: follow-latest, onConflict: revert }
-        timeout: 2h
-      # 安装 OSGToolset 后可取消注释：
-      # - type: toolset
-      #   toolsetId: osg
-      #   tool: protobuf-sync
-      #   timeout: 30m
-      # - type: toolset
-      #   toolsetId: osg
-      #   tool: cmake-build
-      #   with: { target: GameCore_Editor }
-      #   timeout: 90m
-      - type: toolset
-        toolsetId: builtin
-        tool: script
-        with:
-          command: powershell
-          args: ["-NoProfile", "-Command", "Write-Host osg-build-example placeholder"]
-        timeout: 1m
+    trigger:
+      type: manual
+    targets:
+      - id: osg-build-example
+        name: OSG 构建示例（需先安装 osg toolset）
+        path: fixtures/wc
+        steps:
+          - uses: builtin/svn-update
+            with:
+              strategy: follow-latest
+              onConflict: revert
+            timeout: 2h
+          - uses: builtin/script
+            with:
+              command: powershell
+              args: ["-NoProfile", "-Command", "Write-Host osg-build-example placeholder"]
+            timeout: 1m
 
-  - id: git-repo-example
+  - id: manual-git-repo-example
     name: Git 仓库（演示）
-    path: fixtures/git-wc
-    steps:
-      - type: toolset
-        toolsetId: builtin
-        tool: git-status
-        timeout: 1m
-      - type: toolset
-        toolsetId: builtin
-        tool: git-pull
-        with:
-          strategy: follow-latest
-          ffOnly: true
-        timeout: 15m
-        retry: 1
-
-  - id: rider-idle-quit
-    name: Rider 空闲退出（演示）
-    path: fixtures/wc
-    oncePerDay: false
-    steps:
-      - type: quit-idle
-        processNames:
-          - rider64
-          - rider
-        idleFor: 1h
-        countIdleFrom: "00:00"
-        until: "08:00"
-        timeout: 3m
+    trigger:
+      type: manual
+    targets:
+      - id: git-repo-example
+        name: Git 仓库（演示）
+        path: fixtures/git-wc
+        steps:
+          - uses: builtin/git-status
+            timeout: 1m
+          - uses: builtin/git-pull
+            with:
+              strategy: follow-latest
+              ffOnly: true
+            timeout: 15m
+            retry: 1
 
 reporting:
   enabled: false
@@ -147,8 +145,10 @@ brain:
     - Glob
   allowedCommands:
     - runWorkspace
+    - runTarget
     - cancelRun
     - summarizeDay
   requireConfirmationFor:
     - runWorkspace
+    - runTarget
     - cancelRun

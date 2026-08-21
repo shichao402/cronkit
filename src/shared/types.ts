@@ -32,9 +32,13 @@ export type StepRecord = {
 
 export type RunRecord = {
   runId: string;
+  /** Target id (historically workspaceId). */
   workspaceId: string;
   workspaceName: string;
+  /** Task id (historically scheduleId). */
   scheduleId: string;
+  taskId?: string;
+  taskName?: string;
   localDate: string;
   keyedTail?: string;
   trigger: Trigger;
@@ -44,12 +48,15 @@ export type RunRecord = {
   steps: StepRecord[];
 };
 
+/** Dashboard row — one planned target under a task. */
 export type WorkspaceView = {
   id: string;
   name: string;
   path: string;
   autoScheduled: boolean;
   scheduleId: string;
+  taskId: string;
+  taskName: string;
   cron: string;
   nextRun: string | null;
   lastRun?: RunRecord;
@@ -105,10 +112,12 @@ export type EditorStep = {
   timeout: string;
   retry?: number;
   continueOnError?: boolean;
+  path?: string;
+  args?: string[];
   params: Record<string, unknown>;
 };
 
-export type EditorWorkspace = {
+export type EditorTarget = {
   id: string;
   name: string;
   path: string;
@@ -116,15 +125,20 @@ export type EditorWorkspace = {
   steps: EditorStep[];
 };
 
-export type EditorSchedule = {
+export type EditorTrigger =
+  | { type: "cron"; cron: string }
+  | { type: "manual" };
+
+export type EditorTask = {
   id: string;
-  description?: string;
-  cron: string;
-  workspaceIds: string[];
+  name: string;
+  enabled: boolean;
+  trigger: EditorTrigger;
+  targets: EditorTarget[];
 };
 
 export type EditorDraft = {
-  version: 1;
+  version: 2;
   timezone: string;
   runtime: {
     maxConcurrentRuns: number;
@@ -133,16 +147,35 @@ export type EditorDraft = {
     releaseOccupants?: boolean;
     releaseGraceMs?: number;
   };
-  schedules: EditorSchedule[];
-  workspaces: EditorWorkspace[];
+  tasks: EditorTask[];
   reporting: Record<string, unknown>;
   brain: Record<string, unknown>;
+};
+
+export type ConfigIssue = {
+  path: string;
+  level: "error" | "warning";
+  message: string;
 };
 
 export type ConfigEditorPayload = {
   path: string;
   text: string;
+  revision: string;
   draft?: EditorDraft;
   parseError?: string;
+  migratedFromV1?: boolean;
+  migrationWarnings?: string[];
   toolsets: ToolsetView[];
 };
+
+export type SaveConfigResult =
+  | { ok: true; snapshot: Snapshot; revision: string }
+  | {
+      ok: false;
+      reason: "conflict" | "validation" | "error";
+      error?: string;
+      issues?: ConfigIssue[];
+      diskRevision?: string;
+      diskText?: string;
+    };

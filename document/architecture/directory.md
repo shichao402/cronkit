@@ -10,10 +10,11 @@ cronkit/
   src/
     main/                   Electron 主进程
     preload/
-    renderer/               面板（正式入口；不要把预览/mock 放这里）
+    renderer/               面板（正式入口；配置页为 React）
+      config-editor/        任务优先配置编辑器
     core/                   编排；禁止依赖 electron
     cli.ts
-    shared/                 跨进程类型
+    shared/                 跨进程类型 / draft YAML
   tools/
     ui-preview/             浏览器 mock 面板；独立 Vite，不进 Electron 打包
   design/icon/              图标源稿（大图）
@@ -22,7 +23,7 @@ cronkit/
   config.demo.yaml          仓库内演示配置
 ```
 
-运行时用户数据不进仓库：`%APPDATA%\workspace-orchestrator\`。
+运行时用户数据不进仓库：`%APPDATA%\cronkit\`。
 
 ## 放哪里
 

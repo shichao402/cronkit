@@ -3,23 +3,28 @@ import { appendFileSync, copyFileSync, existsSync, mkdirSync, readFileSync, writ
 import path from "node:path";
 import type {
   ConfigEditorPayload,
+  ConfigIssue,
   EditorDraft,
   ResolvedTheme,
   RunRecord,
   RunStatus,
+  SaveConfigResult,
   Snapshot,
   StepRecord,
   ThemePref,
   Trigger,
 } from "../shared/types";
 import {
+  contentRevision,
+  findTarget,
   loadConfig,
+  parseConfigDetailed,
   parseConfigFromText,
   readConfigText,
   stepWorkingPath,
   toInvocation,
   type AppConfig,
-  type Workspace,
+  type Target,
 } from "./config";
 import { configToDraft, draftToYaml } from "./config-draft";
 import { TypedEmitter } from "./events";
@@ -38,7 +43,7 @@ import {
 
 type Job = {
   run: RunRecord;
-  workspace: Workspace;
+  workspace: Target;
   persistKey: boolean;
   keyedTail: string;
   abort: AbortController;
@@ -73,8 +78,9 @@ export class Orchestrator extends TypedEmitter {
     try {
       this.config = loadConfig(this.configPath, this.dataDir);
       this.configError = undefined;
+      const targetCount = this.config.tasks.reduce((n, task) => n + task.targets.length, 0);
       this.eventLog(
-        `配置加载成功 schedules=${this.config.schedules.length} workspaces=${this.config.workspaces.length}`,
+        `配置加载成功 tasks=${this.config.tasks.length} targets=${targetCount}`,
       );
     } catch (error) {
       this.configError = error instanceof Error ? error.message : String(error);
@@ -83,54 +89,157 @@ export class Orchestrator extends TypedEmitter {
     this.emitChange();
   }
 
+  currentRevision(): string {
+    try {
+      return contentRevision(readConfigText(this.configPath), this.configPath);
+    } catch {
+      return contentRevision("", this.configPath);
+    }
+  }
+
   getConfigEditor(): ConfigEditorPayload {
     const text = readConfigText(this.configPath);
     const toolsets = listInstalledToolsets(this.dataDir);
+    const revision = contentRevision(text, this.configPath);
     try {
-      const config = parseConfigFromText(text, this.configPath, this.dataDir, { resolvePaths: false });
+      const detailed = parseConfigDetailed(text, this.configPath, this.dataDir, {
+        resolvePaths: false,
+      });
       return {
         path: this.configPath,
         text,
-        draft: configToDraft(config),
+        revision,
+        draft: configToDraft(detailed.config),
+        migratedFromV1: detailed.migratedFromV1,
+        migrationWarnings: detailed.migrationWarnings,
         toolsets,
       };
     } catch (error) {
       return {
         path: this.configPath,
         text,
+        revision,
         parseError: error instanceof Error ? error.message : String(error),
         toolsets,
       };
     }
   }
 
-  validateConfigText(text: string): { ok: boolean; error?: string } {
+  validateConfigText(text: string): { ok: boolean; error?: string; issues?: ConfigIssue[] } {
     try {
       parseConfigFromText(text, this.configPath, this.dataDir, { resolvePaths: false });
       return { ok: true };
     } catch (error) {
-      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+      const message = error instanceof Error ? error.message : String(error);
+      const issues = parseIssueLines(message);
+      return { ok: false, error: message, issues };
     }
   }
 
-  saveConfigText(text: string): Snapshot {
+  previewConfigText(text: string): {
+    ok: boolean;
+    draft?: EditorDraft;
+    error?: string;
+    issues?: ConfigIssue[];
+    migratedFromV1?: boolean;
+    migrationWarnings?: string[];
+  } {
+    try {
+      const detailed = parseConfigDetailed(text, this.configPath, this.dataDir, {
+        resolvePaths: false,
+      });
+      return {
+        ok: true,
+        draft: configToDraft(detailed.config),
+        migratedFromV1: detailed.migratedFromV1,
+        migrationWarnings: detailed.migrationWarnings,
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { ok: false, error: message, issues: parseIssueLines(message) };
+    }
+  }
+
+  saveConfigText(text: string, expectedRevision?: string, force = false): Snapshot {
+    const result = this.saveConfigTextResult(text, expectedRevision, force);
+    if (!result.ok) {
+      throw new Error(result.error ?? result.reason);
+    }
+    return result.snapshot;
+  }
+
+  saveConfigTextResult(
+    text: string,
+    expectedRevision?: string,
+    force = false,
+  ): SaveConfigResult {
+    if (!force && expectedRevision) {
+      const diskRevision = this.currentRevision();
+      if (diskRevision !== expectedRevision) {
+        return {
+          ok: false,
+          reason: "conflict",
+          error: "磁盘上的配置已被外部修改",
+          diskRevision,
+          diskText: readConfigText(this.configPath),
+        };
+      }
+    }
     const checked = this.validateConfigText(text);
     if (!checked.ok) {
-      throw new Error(checked.error ?? "配置无效");
+      return {
+        ok: false,
+        reason: "validation",
+        error: checked.error ?? "配置无效",
+        issues: checked.issues,
+      };
     }
-    if (existsSync(this.configPath)) {
-      copyFileSync(this.configPath, `${this.configPath}.bak`);
+    try {
+      // Always persist canonical v2 YAML (migrates v1 on save).
+      const detailed = parseConfigDetailed(text, this.configPath, this.dataDir, {
+        resolvePaths: false,
+      });
+      const out = detailed.migratedFromV1
+        ? draftToYaml(configToDraft(detailed.config))
+        : text.endsWith("\n")
+          ? text
+          : `${text}\n`;
+      if (existsSync(this.configPath)) {
+        copyFileSync(this.configPath, `${this.configPath}.bak`);
+      }
+      writeFileSync(this.configPath, out.endsWith("\n") ? out : `${out}\n`, "utf8");
+      this.reloadConfig();
+      if (this.configError) {
+        return { ok: false, reason: "error", error: this.configError };
+      }
+      return {
+        ok: true,
+        snapshot: this.snapshot(),
+        revision: this.currentRevision(),
+      };
+    } catch (error) {
+      return {
+        ok: false,
+        reason: "error",
+        error: error instanceof Error ? error.message : String(error),
+      };
     }
-    writeFileSync(this.configPath, text.endsWith("\n") ? text : `${text}\n`, "utf8");
-    this.reloadConfig();
-    if (this.configError) {
-      throw new Error(this.configError);
-    }
-    return this.snapshot();
   }
 
-  saveConfigDraft(draft: EditorDraft): Snapshot {
-    return this.saveConfigText(draftToYaml(draft));
+  saveConfigDraft(
+    draft: EditorDraft,
+    expectedRevision?: string,
+    force = false,
+  ): Snapshot {
+    return this.saveConfigText(draftToYaml(draft), expectedRevision, force);
+  }
+
+  saveConfigDraftResult(
+    draft: EditorDraft,
+    expectedRevision?: string,
+    force = false,
+  ): SaveConfigResult {
+    return this.saveConfigTextResult(draftToYaml(draft), expectedRevision, force);
   }
 
   start(): void {
@@ -198,6 +307,8 @@ export class Orchestrator extends TypedEmitter {
           path: item.path,
           autoScheduled: item.autoScheduled,
           scheduleId: item.scheduleId,
+          taskId: item.taskId,
+          taskName: item.taskName,
           cron: item.cron,
           nextRun: item.nextRun,
           lastRun,
@@ -209,25 +320,37 @@ export class Orchestrator extends TypedEmitter {
     };
   }
 
+  /** @deprecated prefer runTarget — workspaceId is target id. */
   async runWorkspace(
     workspaceId: string,
     trigger: Trigger,
     scheduleId = "manual",
     slotKey?: string,
   ): Promise<RunRecord> {
+    return this.runTarget(workspaceId, trigger, scheduleId, slotKey);
+  }
+
+  async runTarget(
+    targetId: string,
+    trigger: Trigger,
+    taskId = "manual",
+    slotKey?: string,
+  ): Promise<RunRecord> {
     if (!this.config || this.configError) {
       throw new Error(this.configError ?? "配置未加载");
     }
-    const workspace = this.config.workspaces.find((item) => item.id === workspaceId);
-    if (!workspace) {
-      throw new Error(`未知 workspace: ${workspaceId}`);
+    const found = findTarget(this.config, targetId);
+    if (!found) {
+      throw new Error(`未知 target: ${targetId}`);
     }
+    const { task, target } = found;
+    const resolvedTaskId = taskId === "manual" ? task.id : taskId;
 
     const date = localDate(this.config.timezone);
-    const keyedTail = workspace.oncePerDay === false && slotKey ? slotKey : date;
+    const keyedTail = target.oncePerDay === false && slotKey ? slotKey : date;
     const persistKey = trigger !== "manual";
     if (persistKey) {
-      const existing = this.store.data.keyed[this.store.runKey(workspaceId, scheduleId, keyedTail)];
+      const existing = this.store.data.keyed[this.store.runKey(targetId, resolvedTaskId, keyedTail)];
       if (existing) {
         const inFlight = existing.status === "queued" || existing.status === "running";
         const doneOk = existing.status === "succeeded" || existing.status === "skipped";
@@ -235,9 +358,9 @@ export class Orchestrator extends TypedEmitter {
           (existing.status === "failed" || existing.status === "cancelled") &&
           !this.config.runtime.retryFailedOnCatchUp;
         if (inFlight || doneOk || blockedFail) {
-          const found = this.store.data.runs.find((run) => run.runId === existing.runId);
-          if (found) {
-            return found;
+          const foundRun = this.store.data.runs.find((run) => run.runId === existing.runId);
+          if (foundRun) {
+            return foundRun;
           }
         }
       }
@@ -245,15 +368,17 @@ export class Orchestrator extends TypedEmitter {
 
     const run: RunRecord = {
       runId: randomUUID(),
-      workspaceId,
-      workspaceName: workspace.name,
-      scheduleId,
+      workspaceId: target.id,
+      workspaceName: target.name,
+      scheduleId: resolvedTaskId,
+      taskId: resolvedTaskId,
+      taskName: task.name,
       localDate: date,
       keyedTail,
       trigger,
       status: "queued",
       startedAt: nowIso(),
-      steps: workspace.steps.map((step, index) => {
+      steps: target.steps.map((step, index) => {
         const inv = toInvocation(step);
         return {
           index,
@@ -267,7 +392,7 @@ export class Orchestrator extends TypedEmitter {
     return new Promise<RunRecord>((resolve) => {
       const job: Job = {
         run,
-        workspace,
+        workspace: target,
         persistKey,
         keyedTail,
         abort: new AbortController(),
@@ -277,11 +402,26 @@ export class Orchestrator extends TypedEmitter {
       this.jobs.set(run.runId, job);
       this.store.upsertRun(run, persistKey);
       this.eventLog(
-        `任务入队 workspace=${workspaceId} trigger=${trigger} schedule=${scheduleId} slot=${keyedTail} runId=${run.runId}`,
+        `任务入队 target=${targetId} trigger=${trigger} task=${resolvedTaskId} slot=${keyedTail} runId=${run.runId}`,
       );
       this.emitChange();
       this.pump();
     });
+  }
+
+  async runTask(taskId: string, trigger: Trigger = "manual"): Promise<RunRecord[]> {
+    if (!this.config || this.configError) {
+      throw new Error(this.configError ?? "配置未加载");
+    }
+    const task = this.config.tasks.find((item) => item.id === taskId);
+    if (!task) {
+      throw new Error(`未知 task: ${taskId}`);
+    }
+    const runs: RunRecord[] = [];
+    for (const target of task.targets) {
+      runs.push(await this.runTarget(target.id, trigger, task.id));
+    }
+    return runs;
   }
 
   cancelRun(runId: string): void {
@@ -311,8 +451,11 @@ export class Orchestrator extends TypedEmitter {
     const today = localDate(this.config.timezone);
     const oldest = addDays(today, -this.config.runtime.catchUpPreviousDays);
     const onTimeWindowMs = 3 * 60_000;
-    for (const schedule of this.config.schedules) {
-      const prev = previousFire(schedule.cron, this.config.timezone);
+    for (const task of this.config.tasks) {
+      if (!task.enabled || task.trigger.type !== "cron") {
+        continue;
+      }
+      const prev = previousFire(task.trigger.cron, this.config.timezone);
       if (!prev) {
         continue;
       }
@@ -329,10 +472,10 @@ export class Orchestrator extends TypedEmitter {
       }
       const trigger: Trigger = age < onTimeWindowMs ? "schedule" : "catch-up";
       const slotKey = prev.toISOString();
-      for (const workspaceId of schedule.workspaceIds) {
-        void this.runWorkspace(workspaceId, trigger, schedule.id, slotKey).catch((error) => {
+      for (const target of task.targets) {
+        void this.runTarget(target.id, trigger, task.id, slotKey).catch((error) => {
           this.eventLog(
-            `调度入队失败 workspace=${workspaceId}: ${error instanceof Error ? error.message : String(error)}`,
+            `调度入队失败 target=${target.id}: ${error instanceof Error ? error.message : String(error)}`,
           );
         });
       }
@@ -621,6 +764,17 @@ export class Orchestrator extends TypedEmitter {
     ];
     appendFileSync(path.join(dir, "summary.txt"), `${lines.join("\n")}\n`, "utf8");
   }
+}
+
+function parseIssueLines(message: string): ConfigIssue[] {
+  const issues: ConfigIssue[] = [];
+  for (const line of message.split("\n")) {
+    const match = line.match(/^\s*-\s*([^:]+):\s*(.+)$/);
+    if (match) {
+      issues.push({ path: match[1].trim(), level: "error", message: match[2].trim() });
+    }
+  }
+  return issues;
 }
 
 function stepAttempts(inv: ToolInvocation, dataDir: string): number {

@@ -1,9 +1,10 @@
 import { stringify } from "yaml";
-import type { EditorDraft, EditorWorkspace } from "./types";
+import type { EditorDraft, EditorStep, EditorTarget, EditorTask } from "./types";
+import { canonicalizeStep } from "./canonicalize-step";
 
 export function draftToYaml(draft: EditorDraft): string {
   const doc = {
-    version: 1 as const,
+    version: 2 as const,
     timezone: draft.timezone,
     runtime: {
       maxConcurrentRuns: draft.runtime.maxConcurrentRuns,
@@ -14,13 +15,7 @@ export function draftToYaml(draft: EditorDraft): string {
         ? { releaseGraceMs: draft.runtime.releaseGraceMs }
         : {}),
     },
-    schedules: draft.schedules.map((item) => ({
-      id: item.id.trim(),
-      ...(item.description?.trim() ? { description: item.description.trim() } : {}),
-      cron: item.cron.trim(),
-      workspaceIds: item.workspaceIds,
-    })),
-    workspaces: draft.workspaces.map((workspace) => workspaceToYaml(workspace)),
+    tasks: draft.tasks.map((task) => taskToYaml(task)),
     reporting: draft.reporting,
     brain: draft.brain,
   };
@@ -31,44 +26,40 @@ export function draftToYaml(draft: EditorDraft): string {
 ${stringify(doc, { indent: 2, lineWidth: 0, aliasDuplicateObjects: false })}`;
 }
 
-function workspaceToYaml(workspace: EditorWorkspace): Record<string, unknown> {
+function taskToYaml(task: EditorTask): Record<string, unknown> {
+  const trigger =
+    task.trigger.type === "cron"
+      ? { type: "cron", cron: task.trigger.cron.trim() }
+      : { type: "manual" };
   return {
-    id: workspace.id.trim(),
-    name: workspace.name.trim(),
-    path: workspace.path.replace(/\\/g, "/"),
-    ...(workspace.oncePerDay === false ? { oncePerDay: false } : {}),
-    steps: workspace.steps.map((step) => {
-      const withParams = compactParams(step.params);
-      const node: Record<string, unknown> = {
-        type: "toolset",
-        toolsetId: step.toolsetId,
-        tool: step.tool,
-        timeout: step.timeout.trim() || "30m",
-      };
-      if (Object.keys(withParams).length > 0) {
-        node.with = withParams;
-      }
-      if (typeof step.retry === "number" && step.retry > 0) {
-        node.retry = step.retry;
-      }
-      if (step.continueOnError) {
-        node.continueOnError = true;
-      }
-      return node;
-    }),
+    id: task.id.trim(),
+    name: task.name.trim(),
+    ...(task.enabled === false ? { enabled: false } : {}),
+    trigger,
+    targets: task.targets.map((target) => targetToYaml(target)),
   };
 }
 
-function compactParams(params: Record<string, unknown>): Record<string, unknown> {
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(params ?? {})) {
-    if (value === undefined || value === null || value === "") {
-      continue;
-    }
-    if (Array.isArray(value) && value.length === 0) {
-      continue;
-    }
-    out[key] = value;
-  }
-  return out;
+function targetToYaml(target: EditorTarget): Record<string, unknown> {
+  return {
+    id: target.id.trim(),
+    name: target.name.trim(),
+    path: target.path.replace(/\\/g, "/"),
+    ...(target.oncePerDay === false ? { oncePerDay: false } : {}),
+    steps: target.steps.map((step) => stepToYaml(step)),
+  };
+}
+
+function stepToYaml(step: EditorStep): Record<string, unknown> {
+  return canonicalizeStep({
+    type: "toolset",
+    toolsetId: step.toolsetId,
+    tool: step.tool,
+    with: step.params,
+    timeout: step.timeout.trim() || "30m",
+    retry: step.retry,
+    continueOnError: step.continueOnError,
+    ...(step.path ? { path: step.path } : {}),
+    ...(step.args && step.args.length > 0 ? { args: step.args } : {}),
+  });
 }
