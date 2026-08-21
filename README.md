@@ -2,10 +2,12 @@
 
 Windows 托盘程序：按 YAML 调度 SVN 更新、Unity 预热和本地脚本。
 
+项目文档在 [`document/`](document/README.md)（adr / architecture / roadmap）。脚本在 `scripts/`。
+
 ## 启动
 
 ```bat
-cd /d D:\workspace\GitHub\AgentsHelpMe\_work\workspace-orchestrator
+cd /d D:\workspace\GitHub\AgentsHelpMe\_work\cronkit
 npm install
 npm start
 ```
@@ -17,7 +19,7 @@ npm start
 ## 打包 exe
 
 ```bat
-cd /d D:\workspace\GitHub\AgentsHelpMe\_work\workspace-orchestrator
+cd /d D:\workspace\GitHub\AgentsHelpMe\_work\cronkit
 npm install
 npm run dist
 ```
