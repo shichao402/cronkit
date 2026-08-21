@@ -8,7 +8,6 @@ import {
   type Dispatch,
   type ReactNode,
 } from "react";
-import { draftToYaml } from "../../shared/draft-yaml";
 import type { ConfigEditorPayload } from "../../shared/types";
 import {
   createInitialState,
@@ -32,8 +31,6 @@ type Ctx = {
   load: (focusTaskId?: string) => Promise<void>;
   save: (force?: boolean) => Promise<boolean>;
   discard: () => Promise<void>;
-  syncYamlFromDraft: () => void;
-  previewYamlIntoDraft: (text: string) => Promise<boolean>;
 };
 
 const EditorContext = createContext<Ctx | null>(null);
@@ -56,57 +53,22 @@ export function EditorProvider({ host, children }: { host: Host; children: React
     [host],
   );
 
-  const syncYamlFromDraft = useCallback(() => {
-    if (!state.draft) {
-      return;
-    }
-    dispatch({ type: "SET_YAML", text: draftToYaml(state.draft) });
-  }, [state.draft]);
-
-  const previewYamlIntoDraft = useCallback(
-    async (text: string): Promise<boolean> => {
-      const result = await host.api.previewConfig(text);
-      if (!result.ok || !result.draft) {
-        dispatch({
-          type: "SET_ISSUES",
-          issues: [
-            {
-              path: "(yaml)",
-              level: "error",
-              message: result.error ?? "YAML 无法解析为配置",
-            },
-          ],
-        });
-        return false;
-      }
-      dispatch({ type: "APPLY_DRAFT_FROM_YAML", draft: result.draft });
-      dispatch({ type: "SET_ISSUES", issues: [] });
-      return true;
-    },
-    [host.api],
-  );
-
   const save = useCallback(
     async (force = false): Promise<boolean> => {
-      if (!state.draft && state.mode === "form") {
+      if (!state.draft) {
         host.toast("没有可保存的配置", true);
         return false;
       }
       dispatch({ type: "SET_SAVING", saving: true });
       try {
-        let result;
-        if (state.mode === "yaml" || !state.draft) {
-          result = await host.api.saveConfigText(state.yamlText, state.revision, force);
-        } else {
-          const local = validateDraftLocally(state.draft);
-          if (local.length > 0) {
-            dispatch({ type: "SET_ISSUES", issues: local });
-            dispatch({ type: "SET_SAVING", saving: false });
-            host.toast(local[0].message, true);
-            return false;
-          }
-          result = await host.api.saveConfigDraft(state.draft, state.revision, force);
+        const local = validateDraftLocally(state.draft);
+        if (local.length > 0) {
+          dispatch({ type: "SET_ISSUES", issues: local });
+          dispatch({ type: "SET_SAVING", saving: false });
+          host.toast(local[0].message, true);
+          return false;
         }
+        const result = await host.api.saveConfigDraft(state.draft, state.revision, force);
         if (!result.ok) {
           if (result.reason === "conflict" && result.diskRevision && result.diskText) {
             dispatch({
@@ -137,7 +99,7 @@ export function EditorProvider({ host, children }: { host: Host; children: React
         return false;
       }
     },
-    [host, state.draft, state.mode, state.revision, state.yamlText],
+    [host, state.draft, state.revision],
   );
 
   const discard = useCallback(async () => {
@@ -148,17 +110,8 @@ export function EditorProvider({ host, children }: { host: Host; children: React
   }, [load, state.dirty]);
 
   const value = useMemo(
-    () => ({
-      state,
-      dispatch,
-      host,
-      load,
-      save,
-      discard,
-      syncYamlFromDraft,
-      previewYamlIntoDraft,
-    }),
-    [state, host, load, save, discard, syncYamlFromDraft, previewYamlIntoDraft],
+    () => ({ state, dispatch, host, load, save, discard }),
+    [state, host, load, save, discard],
   );
 
   return <EditorContext.Provider value={value}>{children}</EditorContext.Provider>;

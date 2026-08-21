@@ -8,8 +8,7 @@ import type {
   EditorTrigger,
   ToolsetView,
 } from "../../shared/types";
-
-export type EditorMode = "form" | "yaml";
+import { nextRuns } from "./cron";
 
 export type Selection =
   | { kind: "task"; taskId: string }
@@ -22,12 +21,8 @@ export type EditorState = {
   path: string;
   revision: string;
   draft: EditorDraft | null;
-  yamlText: string;
-  mode: EditorMode;
   dirty: boolean;
   parseError?: string;
-  migratedFromV1?: boolean;
-  migrationWarnings: string[];
   toolsets: ToolsetView[];
   selection: Selection;
   issues: ConfigIssue[];
@@ -40,9 +35,6 @@ export type EditorState = {
 export type EditorAction =
   | { type: "LOAD"; payload: ConfigEditorPayload }
   | { type: "SELECT"; selection: Selection }
-  | { type: "SET_MODE"; mode: EditorMode }
-  | { type: "SET_YAML"; text: string }
-  | { type: "APPLY_DRAFT_FROM_YAML"; draft: EditorDraft }
   | { type: "PATCH_DRAFT"; draft: EditorDraft; pushHistory?: boolean }
   | { type: "SET_ISSUES"; issues: ConfigIssue[] }
   | { type: "SET_DIRTY"; dirty: boolean }
@@ -51,7 +43,7 @@ export type EditorAction =
   | { type: "SET_REVISION"; revision: string }
   | { type: "UNDO" }
   | { type: "REDO" }
-  | { type: "MARK_SAVED"; revision: string; draft: EditorDraft; text: string };
+  | { type: "MARK_SAVED"; revision: string; draft: EditorDraft };
 
 const HISTORY_LIMIT = 50;
 
@@ -77,10 +69,7 @@ export function createInitialState(): EditorState {
     path: "",
     revision: "",
     draft: null,
-    yamlText: "",
-    mode: "form",
     dirty: false,
-    migrationWarnings: [],
     toolsets: [],
     selection: { kind: "none" },
     issues: [],
@@ -113,11 +102,7 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         path: payload.path,
         revision: payload.revision,
         draft,
-        yamlText: payload.text,
-        mode: payload.parseError || !draft ? "yaml" : "form",
         parseError: payload.parseError,
-        migratedFromV1: payload.migratedFromV1,
-        migrationWarnings: payload.migrationWarnings ?? [],
         toolsets: payload.toolsets,
         selection: firstTask
           ? { kind: "task", taskId: firstTask.id }
@@ -127,23 +112,6 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
     }
     case "SELECT":
       return { ...state, selection: action.selection };
-    case "SET_MODE":
-      return { ...state, mode: action.mode };
-    case "SET_YAML":
-      return {
-        ...state,
-        yamlText: action.text,
-        dirty: true,
-        parseError: undefined,
-      };
-    case "APPLY_DRAFT_FROM_YAML":
-      return {
-        ...state,
-        draft: cloneDraft(action.draft),
-        dirty: true,
-        parseError: undefined,
-        issues: [],
-      };
     case "PATCH_DRAFT": {
       if (!state.draft) {
         return state;
@@ -198,12 +166,10 @@ export function editorReducer(state: EditorState, action: EditorAction): EditorS
         ...state,
         revision: action.revision,
         draft: cloneDraft(action.draft),
-        yamlText: action.text,
         dirty: false,
         saving: false,
         conflict: undefined,
         parseError: undefined,
-        migratedFromV1: false,
         historyPast: [],
         historyFuture: [],
       };
@@ -373,12 +339,21 @@ export function validateDraftLocally(draft: EditorDraft): ConfigIssue[] {
     if (!task.name.trim()) {
       issues.push({ path: `tasks.${task.id}.name`, level: "error", message: "请填写任务名称" });
     }
-    if (task.trigger.type === "cron" && !task.trigger.cron.trim()) {
-      issues.push({
-        path: `tasks.${task.id}.trigger.cron`,
-        level: "error",
-        message: "请填写 cron 表达式",
-      });
+    if (task.trigger.type === "cron") {
+      const cron = task.trigger.cron.trim();
+      if (!cron) {
+        issues.push({
+          path: `tasks.${task.id}.trigger.cron`,
+          level: "error",
+          message: "请填写 cron 表达式",
+        });
+      } else if (nextRuns(cron, draft.timezone, 1).length === 0) {
+        issues.push({
+          path: `tasks.${task.id}.trigger.cron`,
+          level: "error",
+          message: "cron 表达式无效，无法推算运行时间",
+        });
+      }
     }
     if (task.targets.length === 0) {
       issues.push({

@@ -20,10 +20,10 @@ npm start
 
 ```bat
 npm run ui-preview
-:: 可选场景：?scenario=empty|broken|migrate|conflict|validate-fail
+:: 可选场景：?scenario=empty|broken|conflict|validate-fail
 ```
 
-说明在 [`tools/ui-preview/README.md`](tools/ui-preview/README.md)。
+说明在 [`tools/ui-preview/README.md`](tools/ui-preview/README.md)。面板是全站 React；配置在应用内用表单编辑，需要直接改 YAML 时用「外部编辑器」。
 
 ## 测试
 

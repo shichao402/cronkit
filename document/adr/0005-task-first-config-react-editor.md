@@ -11,7 +11,8 @@
 
 1. **配置 v2**：顶层 `tasks[]`；每个 task 含 `trigger`（`cron`|`manual`）与内嵌 `targets[]`（path + steps）。步骤统一为 `uses: toolset/tool`。
 2. **v1 兼容**：加载时内存迁移；显式保存才写 v2（保留 `.bak`）。同一 workspace 被多 schedule 引用时复制 target 并警告。
-3. **编辑器**：引入 React；左侧任务列表 + 中间目标/步骤 + YAML 双视图；**保存并生效**（带 revision 冲突检测）；不做自动写盘、不做画布 DAG。
+3. **编辑器（首版）**：引入 React；左侧任务列表 + 中间目标/步骤 + YAML 双视图；**保存并生效**（带 revision 冲突检测）；不做自动写盘、不做画布 DAG。  
+   > 面板实现已被 [0006](0006-full-react-form-only-panel.md) 修正：整站 React，配置页仅表单，应用内 YAML 视图已去掉。
 4. **运行语义不变**：一次 run = 一个 target；并发、路径锁、catch-up、oncePerDay 键格式保留（`targetId|taskId|tail`）。
 
 ## 备选

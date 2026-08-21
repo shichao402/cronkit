@@ -6,8 +6,8 @@ Windows 托盘调度器：读 YAML，按 cron/手动触发**自动化任务**；
 
 ```
 ┌─────────────────────────────────────────┐
-│ renderer  仪表盘 / 设置（原生）            │
-│           配置页（React：任务/目标/YAML）  │
+│ renderer  全站 React（仪表盘 / 配置 / 设置）│
+│           配置：任务优先表单；YAML 用外部编辑器 │
 │ preload   contextIsolation IPC           │
 └─────────────────┬───────────────────────┘
                   │ ipcMain.handle
@@ -24,7 +24,7 @@ Windows 托盘调度器：读 YAML，按 cron/手动触发**自动化任务**；
          CLI (src/cli.ts) 走同一套 core
 ```
 
-`src/core` 不引用 electron，详见 [ADR 0002](../adr/0002-electron-core-split.md)。配置模型见 [ADR 0005](../adr/0005-task-first-config-react-editor.md)。
+`src/core` 不引用 electron，详见 [ADR 0002](../adr/0002-electron-core-split.md)。配置模型见 [ADR 0005](../adr/0005-task-first-config-react-editor.md)；面板壳与表单唯一编辑见 [ADR 0006](../adr/0006-full-react-form-only-panel.md)。
 
 ## 配置模型（v2）
 

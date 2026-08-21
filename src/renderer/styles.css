@@ -1881,208 +1881,161 @@ kbd {
   }
 }
 
-/* ===== React config editor ================================================= */
-.ce-host {
+/* ===== Config editor (dashboard language) ================================= */
+.cfg-body {
+  display: grid;
+  grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+  gap: 16px;
   min-height: 0;
-  flex: 1;
+  align-items: start;
+}
+
+.cfg-rail,
+.cfg-main {
+  min-height: 0;
+}
+
+.cfg-rail {
+  position: sticky;
+  top: 0;
+}
+
+.cfg-main {
   display: flex;
   flex-direction: column;
-}
-
-.ce-root {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  min-height: 520px;
-  height: calc(100vh - 160px);
-}
-
-.ce-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-
-.ce-tabs,
-.ce-seg {
-  display: inline-flex;
   gap: 4px;
-  padding: 3px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--panel) 80%, transparent);
-  border: 1px solid var(--border);
 }
 
-.ce-tabs button,
-.ce-seg button {
+.cfg-section {
+  margin-top: 8px;
+  margin-bottom: 0;
+}
+
+.cfg-task.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 55%, var(--panel));
+}
+
+.cfg-task.is-off {
+  opacity: 0.6;
+}
+
+.cfg-task-hit {
+  width: 100%;
   border: 0;
   background: transparent;
-  color: var(--muted);
-  padding: 6px 12px;
-  border-radius: 8px;
-  cursor: pointer;
-}
-
-.ce-tabs button.is-active,
-.ce-seg button.is-active {
-  background: var(--accent-soft);
-  color: var(--text);
-  font-weight: 600;
-}
-
-.ce-toolbar-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-
-.ce-dirty {
-  color: var(--warn);
-  font-size: 12px;
-}
-
-.ce-badge {
-  font-size: 12px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-}
-
-.ce-body {
-  display: grid;
-  grid-template-columns: 240px minmax(0, 1fr);
-  gap: 12px;
-  min-height: 0;
-  flex: 1;
-}
-
-.ce-body.is-yaml {
-  grid-template-columns: minmax(0, 1fr);
-}
-
-.ce-rail,
-.ce-main,
-.ce-yaml {
-  min-height: 0;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: var(--panel);
-  padding: 12px;
-  overflow: auto;
-}
-
-.ce-rail-head,
-.ce-block-head,
-.ce-main-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 10px;
-}
-
-.ce-task-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.ce-task-item {
-  width: 100%;
-  text-align: left;
-  border: 1px solid transparent;
-  background: transparent;
-  border-radius: 10px;
-  padding: 10px;
-  cursor: pointer;
   color: inherit;
+  text-align: left;
+  cursor: pointer;
+  padding: 12px 14px;
 }
 
-.ce-task-item:hover,
-.ce-task-item.is-active {
-  border-color: var(--border);
-  background: color-mix(in srgb, var(--accent-soft) 70%, transparent);
-}
-
-.ce-task-item.is-off {
-  opacity: 0.55;
-}
-
-.ce-task-title {
-  display: block;
-  font-weight: 600;
-}
-
-.ce-task-meta {
-  display: block;
-  font-size: 12px;
-  color: var(--muted);
-  margin-top: 2px;
-}
-
-.ce-runtime-link {
-  margin-top: 12px;
+.cfg-runtime-link {
+  margin-top: 10px;
   width: 100%;
-  border: 1px dashed var(--border);
+  border: 1px dashed var(--line);
   background: transparent;
-  border-radius: 10px;
-  padding: 10px;
+  border-radius: var(--r-md);
+  padding: 10px 12px;
   color: var(--muted);
   cursor: pointer;
 }
 
-.ce-runtime-link.is-active {
+.cfg-runtime-link.is-selected {
   color: var(--text);
   border-style: solid;
-  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+  background: color-mix(in srgb, var(--accent-soft) 50%, transparent);
 }
 
-.ce-empty {
-  padding: 24px 12px;
-  text-align: center;
-  color: var(--muted);
-}
-
-.ce-empty h3 {
-  margin: 0 0 6px;
-  color: var(--text);
-}
-
-.ce-block {
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-
-.ce-chips {
+.cfg-sched {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  margin: 8px 0;
+  align-items: flex-end;
+  gap: 10px 14px;
+  margin-top: 12px;
 }
 
-.ce-next-runs {
-  margin: 6px 0 0;
-  padding-left: 18px;
+.cfg-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
   color: var(--muted);
+}
+
+.cfg-field-wide {
+  flex: 1 1 220px;
+}
+
+.cfg-field input,
+.cfg-field select {
+  font-size: 13px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: var(--r-md);
+  padding: 7px 9px;
+}
+
+.cfg-field input[type="time"] {
+  font-variant-numeric: tabular-nums;
+}
+
+.cfg-cron-input {
+  font-family: var(--mono);
+  letter-spacing: 0.4px;
+}
+
+.cfg-hour-range {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.cfg-weekdays {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.cfg-weekdays button {
+  min-width: 30px;
+  padding: 5px 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
   font-size: 12px;
 }
 
-.ce-target-tabs {
+.cfg-weekdays button.is-active {
+  background: var(--accent-soft);
+  border-color: transparent;
+  color: var(--text);
+  font-weight: 600;
+}
+
+.cfg-sched-outlook {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cfg-target-tabs {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   margin: 8px 0 12px;
 }
 
-.ce-target-tabs button {
-  border: 1px solid var(--border);
+.cfg-target-tabs button {
+  border: 1px solid var(--line);
   background: transparent;
   border-radius: 999px;
   padding: 4px 10px;
@@ -2090,94 +2043,86 @@ kbd {
   color: inherit;
 }
 
-.ce-target-tabs button.is-active {
+.cfg-target-tabs button.is-active {
   background: var(--accent-soft);
   border-color: transparent;
 }
 
-.ce-path-row {
+.cfg-path-row {
   display: flex;
   gap: 8px;
+  align-items: center;
 }
 
-.ce-path-row input {
+.cfg-path-row input {
   flex: 1;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: var(--r-md);
+  padding: 7px 9px;
 }
 
-.ce-steps {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
+.cfg-steps {
+  margin-top: 4px;
+}
+
+.cfg-step.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+
+.cfg-step-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
   gap: 8px;
+  padding: 4px 4px 4px 0;
 }
 
-.ce-steps > li {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px;
-}
-
-.ce-steps > li.is-active {
-  border-color: color-mix(in srgb, var(--accent) 50%, var(--border));
-}
-
-.ce-step-hit {
-  width: 100%;
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
+.cfg-step-hit {
   border: 0;
   background: transparent;
   color: inherit;
   cursor: pointer;
   text-align: left;
+  padding: 10px 12px;
 }
 
-.ce-step-actions {
+.cfg-step-actions {
   display: flex;
-  gap: 4px;
-  margin-top: 6px;
+  gap: 2px;
+  padding-right: 8px;
 }
 
-.ce-step-actions button {
-  border: 1px solid var(--border);
-  background: transparent;
-  border-radius: 6px;
-  padding: 2px 8px;
-  cursor: pointer;
-  color: inherit;
-}
-
-.ce-step-form {
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px dashed var(--border);
+.cfg-step-form {
+  padding: 0 12px 12px;
+  border-top: 1px dashed var(--line);
   display: flex;
   flex-direction: column;
   gap: 8px;
 }
 
-.ce-advanced {
-  margin-top: 8px;
+.cfg-advanced {
+  margin-top: 4px;
 }
 
-.ce-advanced summary {
+.cfg-advanced summary {
   cursor: pointer;
   color: var(--muted);
   margin-bottom: 8px;
 }
 
-.ce-danger {
+.cfg-danger {
   display: flex;
   gap: 8px;
-  margin-top: 16px;
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
   flex-wrap: wrap;
 }
 
 .btn-danger {
-  border-color: color-mix(in srgb, var(--fail) 40%, var(--border));
+  border-color: color-mix(in srgb, var(--fail) 40%, var(--line));
   color: var(--fail);
 }
 
@@ -2195,7 +2140,8 @@ kbd {
 }
 
 .form-grid label,
-.param-grid label {
+.param-grid label,
+.cfg-step-form label {
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -2211,12 +2157,12 @@ kbd {
 .form-grid select,
 .param-grid input,
 .param-grid select,
-.ce-step-form select,
-.ce-step-form input {
-  border: 1px solid var(--border);
+.cfg-step-form select,
+.cfg-step-form input {
+  border: 1px solid var(--line);
   background: var(--bg);
   color: var(--text);
-  border-radius: 8px;
+  border-radius: var(--r-md);
   padding: 7px 9px;
 }
 
@@ -2228,35 +2174,19 @@ kbd {
   color: var(--text);
 }
 
-.ce-yaml {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.ce-yaml .cm-editor {
-  flex: 1;
-  min-height: 360px;
-  border-radius: 10px;
-  border: 1px solid var(--border);
-  overflow: hidden;
-}
-
-.ce-yaml-actions {
+.cfg-conflict-actions {
   display: flex;
   gap: 8px;
-}
-
-.ce-conflict-actions {
-  display: flex;
-  gap: 8px;
-  margin-top: 8px;
   flex-wrap: wrap;
 }
 
 @media (max-width: 900px) {
-  .ce-body {
+  .cfg-body {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .cfg-rail {
+    position: static;
   }
 
   .form-grid {

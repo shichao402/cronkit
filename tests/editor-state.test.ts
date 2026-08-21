@@ -52,6 +52,16 @@ describe("editor reducer", () => {
     expect(state.draft?.tasks[0].name).toBe(before.tasks[0].name);
   });
 
+  it("flags an unparsable cron expression locally", () => {
+    const state = loaded();
+    const draft = structuredClone(state.draft!);
+    draft.tasks[0].trigger = { type: "cron", cron: "abc" };
+    expect(validateDraftLocally(draft).some((i) => i.message.includes("cron"))).toBe(true);
+
+    draft.tasks[0].trigger = { type: "cron", cron: "0 2 * * 1-5" };
+    expect(validateDraftLocally(draft).some((i) => i.message.includes("cron"))).toBe(false);
+  });
+
   it("flags empty path locally", () => {
     const state = loaded();
     const draft = structuredClone(state.draft!);

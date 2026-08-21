@@ -1,15 +1,32 @@
-import type { EditorStep, ToolParamView, ToolsetView } from "../../shared/types";
+import { useState } from "react";
+import type { EditorStep, EditorTrigger, ToolParamView, ToolsetView } from "../../shared/types";
+import { Icon } from "../components/Icon";
 import { useEditor } from "./context";
 import {
   createTarget,
   defaultStepParams,
   findTask,
   moveStep,
+  setTrigger,
   updateStep,
   updateTarget,
   updateTask,
 } from "./state";
-import { cronPresets, describeCron, formatIsoLocal, nextRuns } from "./cron";
+import {
+  buildCron,
+  describeCron,
+  minuteIntervals,
+  parseSchedule,
+  parseTimeValue,
+  scheduleForKind,
+  scheduleKindLabels,
+  scheduleOutlook,
+  timeValue,
+  weekdayLabel,
+  withTime,
+  type Schedule,
+  type ScheduleKind,
+} from "./cron";
 
 function issueFor(path: string, issues: { path: string; message: string }[]): string | undefined {
   return issues.find((item) => item.path === path || item.path.startsWith(`${path}.`))?.message;
@@ -20,16 +37,19 @@ export function MainPanel() {
   const { draft, selection, issues, toolsets } = state;
   if (!draft) {
     return (
-      <section className="ce-main">
-        <div className="ce-empty">切换到 YAML 修复配置后即可使用表单。</div>
+      <section className="cfg-main">
+        <div className="empty">
+          <div className="empty-title">配置无法用表单打开</div>
+          <div className="empty-hint">切换到 YAML 修复配置后即可使用表单。</div>
+        </div>
       </section>
     );
   }
 
   if (selection.kind === "runtime") {
     return (
-      <section className="ce-main">
-        <header className="ce-main-head">
+      <section className="cfg-main">
+        <header className="block-head">
           <h2>运行时</h2>
         </header>
         <div className="form-grid">
@@ -104,7 +124,7 @@ export function MainPanel() {
             />
             补跑时重试失败任务
           </label>
-          <details className="ce-advanced">
+          <details className="cfg-advanced">
             <summary>高级</summary>
             <label className="check">
               <input
@@ -153,8 +173,11 @@ export function MainPanel() {
 
   if (selection.kind === "none") {
     return (
-      <section className="ce-main">
-        <div className="ce-empty">从左侧选择一个自动化任务。</div>
+      <section className="cfg-main">
+        <div className="empty">
+          <div className="empty-title">未选择任务</div>
+          <div className="empty-hint">从左侧选择一个自动化任务。</div>
+        </div>
       </section>
     );
   }
@@ -162,8 +185,11 @@ export function MainPanel() {
   const task = findTask(draft, selection.taskId);
   if (!task) {
     return (
-      <section className="ce-main">
-        <div className="ce-empty">任务不存在。</div>
+      <section className="cfg-main">
+        <div className="empty">
+          <div className="empty-title">任务不存在</div>
+          <div className="empty-hint">请重新选择左侧列表中的任务。</div>
+        </div>
       </section>
     );
   }
@@ -176,11 +202,11 @@ export function MainPanel() {
   const selectedStepIndex = selection.kind === "step" ? selection.stepIndex : -1;
 
   return (
-    <section className="ce-main">
-      <header className="ce-main-head">
+    <section className="cfg-main">
+      <header className="block-head">
         <div>
           <h2>{task.name || task.id}</h2>
-          <p className="muted">id: {task.id}</p>
+          <p className="form-note">id: {task.id}</p>
         </div>
         <label className="check">
           <input
@@ -240,92 +266,20 @@ export function MainPanel() {
         </label>
       </div>
 
-      <div className="ce-block">
-        <h3>触发器</h3>
-        <div className="ce-seg">
-          <button
-            type="button"
-            className={task.trigger.type === "cron" ? "is-active" : ""}
-            onClick={() =>
-              dispatch({
-                type: "PATCH_DRAFT",
-                draft: updateTask(draft, task.id, (t) => ({
-                  ...t,
-                  trigger: { type: "cron", cron: t.trigger.type === "cron" ? t.trigger.cron : "10 2 * * *" },
-                })),
-              })
-            }
-          >
-            Cron
-          </button>
-          <button
-            type="button"
-            className={task.trigger.type === "manual" ? "is-active" : ""}
-            onClick={() =>
-              dispatch({
-                type: "PATCH_DRAFT",
-                draft: updateTask(draft, task.id, (t) => ({
-                  ...t,
-                  trigger: { type: "manual" },
-                })),
-              })
-            }
-          >
-            仅手动
-          </button>
-        </div>
-        {task.trigger.type === "cron" && (
-          <>
-            <div className="ce-chips">
-              {cronPresets().map((preset) => (
-                <button
-                  key={preset.cron}
-                  type="button"
-                  className="chip"
-                  onClick={() =>
-                    dispatch({
-                      type: "PATCH_DRAFT",
-                      draft: updateTask(draft, task.id, (t) => ({
-                        ...t,
-                        trigger: { type: "cron", cron: preset.cron },
-                      })),
-                    })
-                  }
-                >
-                  {preset.label}
-                </button>
-              ))}
-            </div>
-            <label>
-              Cron 表达式
-              <input
-                value={task.trigger.cron}
-                onChange={(e) =>
-                  dispatch({
-                    type: "PATCH_DRAFT",
-                    draft: updateTask(draft, task.id, (t) => ({
-                      ...t,
-                      trigger: { type: "cron", cron: e.target.value },
-                    })),
-                    pushHistory: false,
-                  })
-                }
-              />
-            </label>
-            <p className="muted">
-              {describeCron(task.trigger.cron)} · 时区 {draft.timezone}
-            </p>
-            <ul className="ce-next-runs">
-              {nextRuns(task.trigger.cron, draft.timezone).map((iso) => (
-                <li key={iso}>下次：{formatIsoLocal(iso, draft.timezone)}</li>
-              ))}
-            </ul>
-          </>
-        )}
-      </div>
+      <TriggerEditor
+        key={task.id}
+        trigger={task.trigger}
+        timezone={draft.timezone}
+        onChange={(trigger) =>
+          dispatch({
+            type: "PATCH_DRAFT",
+            draft: updateTask(draft, task.id, (t) => setTrigger(t, trigger)),
+          })
+        }
+      />
 
-      <div className="ce-block">
-        <div className="ce-block-head">
+      <div className="block cfg-section">
+        <div className="block-head">
           <h3>目标目录</h3>
           <button
             type="button"
@@ -349,8 +303,8 @@ export function MainPanel() {
             添加目录
           </button>
         </div>
-        <p className="muted">每个目标独立入队，不是跨目录串行流水线。</p>
-        <div className="ce-target-tabs">
+        <p className="form-note">每个目标独立入队，不是跨目录串行流水线。</p>
+        <div className="cfg-target-tabs">
           {task.targets.map((item) => (
             <button
               key={item.id}
@@ -454,6 +408,222 @@ export function MainPanel() {
   );
 }
 
+const SCHEDULE_KINDS: ScheduleKind[] = ["daily", "weekly", "hourly", "minutes", "custom"];
+const HOURS = Array.from({ length: 24 }, (_, i) => i);
+const MINUTE_MARKS = Array.from({ length: 12 }, (_, i) => i * 5);
+const WEEKDAY_ORDER = [1, 2, 3, 4, 5, 6, 0];
+
+/** 手写 YAML 可能给出选项以外的值（如每 7 分钟），补进列表以免 select 显示空白。 */
+function optionsWith(options: readonly number[], value: number): number[] {
+  return options.includes(value) ? [...options] : [...options, value].sort((a, b) => a - b);
+}
+
+function TriggerEditor({
+  trigger,
+  timezone,
+  onChange,
+}: {
+  trigger: EditorTrigger;
+  timezone: string;
+  onChange: (trigger: EditorTrigger) => void;
+}) {
+  const cron = trigger.type === "cron" ? trigger.cron : "10 2 * * *";
+  const parsed = parseSchedule(cron);
+  // 表达式能被表单表示时也允许用户停在自定义模式，避免输入过程被抢走。
+  const [preferCustom, setPreferCustom] = useState(!parsed);
+  const kind: ScheduleKind = parsed && !preferCustom ? parsed.kind : "custom";
+  const outlook = trigger.type === "cron" ? scheduleOutlook(cron, timezone) : null;
+  const apply = (schedule: Schedule) => onChange({ type: "cron", cron: buildCron(schedule) });
+
+  return (
+    <div className="block cfg-section">
+      <h3>运行时间</h3>
+      <div className="seg" role="group" aria-label="触发方式">
+        <button
+          type="button"
+          aria-pressed={trigger.type === "cron"}
+          onClick={() => onChange({ type: "cron", cron })}
+        >
+          按计划
+        </button>
+        <button
+          type="button"
+          aria-pressed={trigger.type === "manual"}
+          onClick={() => onChange({ type: "manual" })}
+        >
+          仅手动
+        </button>
+      </div>
+
+      {trigger.type === "manual" ? (
+        <p className="form-note">不自动调度，只在你手动运行时执行。</p>
+      ) : (
+        <>
+          <div className="cfg-sched">
+            <label className="cfg-field">
+              重复
+              <select
+                value={kind}
+                onChange={(e) => {
+                  const next = e.target.value as ScheduleKind;
+                  if (next === "custom") {
+                    setPreferCustom(true);
+                    return;
+                  }
+                  setPreferCustom(false);
+                  apply(scheduleForKind(next, parsed));
+                }}
+              >
+                {SCHEDULE_KINDS.map((item) => (
+                  <option key={item} value={item}>
+                    {scheduleKindLabels[item]}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {(kind === "daily" || kind === "weekly") && parsed && "hour" in parsed && (
+              <label className="cfg-field">
+                时间
+                <input
+                  type="time"
+                  value={timeValue(parsed.hour, parsed.minute)}
+                  onChange={(e) => {
+                    const time = parseTimeValue(e.target.value);
+                    if (time) {
+                      apply(withTime(parsed, time.hour, time.minute));
+                    }
+                  }}
+                />
+              </label>
+            )}
+
+            {kind === "hourly" && parsed?.kind === "hourly" && (
+              <label className="cfg-field">
+                每小时第
+                <select
+                  value={parsed.minute}
+                  onChange={(e) => apply({ ...parsed, minute: Number(e.target.value) })}
+                >
+                  {optionsWith(MINUTE_MARKS, parsed.minute).map((minute) => (
+                    <option key={minute} value={minute}>
+                      {minute} 分
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {kind === "minutes" && parsed?.kind === "minutes" && (
+              <>
+                <label className="cfg-field">
+                  间隔
+                  <select
+                    value={parsed.every}
+                    onChange={(e) => apply({ ...parsed, every: Number(e.target.value) })}
+                  >
+                    {optionsWith(minuteIntervals, parsed.every).map((every) => (
+                      <option key={every} value={every}>
+                        每 {every} 分钟
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="cfg-field">
+                  时段
+                  <span className="cfg-hour-range">
+                    <select
+                      value={parsed.fromHour}
+                      onChange={(e) => {
+                        const fromHour = Number(e.target.value);
+                        apply({
+                          ...parsed,
+                          fromHour,
+                          toHour: Math.max(fromHour, parsed.toHour),
+                        });
+                      }}
+                    >
+                      {HOURS.map((hour) => (
+                        <option key={hour} value={hour}>
+                          {hour} 点
+                        </option>
+                      ))}
+                    </select>
+                    <span className="form-note">至</span>
+                    <select
+                      value={parsed.toHour}
+                      onChange={(e) => apply({ ...parsed, toHour: Number(e.target.value) })}
+                    >
+                      {HOURS.filter((hour) => hour >= parsed.fromHour).map((hour) => (
+                        <option key={hour} value={hour}>
+                          {hour} 点
+                        </option>
+                      ))}
+                    </select>
+                  </span>
+                </label>
+              </>
+            )}
+
+            {kind === "custom" && (
+              <label className="cfg-field cfg-field-wide">
+                cron 表达式
+                <input
+                  className="cfg-cron-input"
+                  value={cron}
+                  spellCheck={false}
+                  placeholder="分 时 日 月 周"
+                  onChange={(e) => onChange({ type: "cron", cron: e.target.value })}
+                />
+              </label>
+            )}
+          </div>
+
+          {kind === "weekly" && parsed?.kind === "weekly" && (
+            <div className="cfg-weekdays">
+              {WEEKDAY_ORDER.map((day) => {
+                const on = parsed.weekdays.includes(day);
+                return (
+                  <button
+                    key={day}
+                    type="button"
+                    className={on ? "is-active" : ""}
+                    aria-pressed={on}
+                    onClick={() => {
+                      const weekdays = on
+                        ? parsed.weekdays.filter((item) => item !== day)
+                        : [...parsed.weekdays, day];
+                      if (weekdays.length) {
+                        apply({ ...parsed, weekdays });
+                      }
+                    }}
+                  >
+                    {weekdayLabel(day)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          <p className="cfg-sched-outlook">
+            {outlook ? (
+              <>
+                <span>{describeCron(cron)}</span>
+                <span className="form-note">
+                  下次 {outlook.next}
+                  {outlook.later.length > 0 && ` · 之后 ${outlook.later.join("、")}`} · {timezone}
+                </span>
+              </>
+            ) : (
+              <span className="field-error">{describeCron(cron)} · 无法推算运行时间</span>
+            )}
+          </p>
+        </>
+      )}
+    </div>
+  );
+}
+
 function TargetEditor(props: {
   taskId: string;
   target: ReturnType<typeof createTarget>;
@@ -485,7 +655,7 @@ function TargetEditor(props: {
   const pathError = issueFor(`tasks.${taskId}.targets.${target.id}.path`, issues);
 
   return (
-    <div className="ce-target">
+    <div className="cfg-target">
       <div className="form-grid">
         <label>
           显示名
@@ -503,12 +673,12 @@ function TargetEditor(props: {
         </label>
         <label className="span-2">
           路径
-          <div className="ce-path-row">
+          <div className="cfg-path-row">
             <input
               value={target.path}
               onChange={(e) => onChangeTarget((t) => ({ ...t, path: e.target.value }))}
             />
-            <button type="button" className="btn" onClick={onPickFolder}>
+            <button type="button" className="btn btn-quiet btn-sm" onClick={onPickFolder}>
               浏览…
             </button>
           </div>
@@ -524,7 +694,7 @@ function TargetEditor(props: {
         </label>
       </div>
 
-      <div className="ce-block-head">
+      <div className="block-head">
         <h4>步骤</h4>
         <button
           type="button"
@@ -544,43 +714,63 @@ function TargetEditor(props: {
         </button>
       </div>
 
-      <ol className="ce-steps">
+      <div className="rows cfg-steps">
         {target.steps.map((step, index) => (
-          <li
+          <article
             key={`${step.toolsetId}/${step.tool}/${index}`}
-            className={index === selectedStepIndex ? "is-active" : ""}
+            className={`row-card cfg-step${index === selectedStepIndex ? " is-selected" : ""}`}
           >
-            <button type="button" className="ce-step-hit" onClick={() => onSelectStep(index)}>
-              <strong>
-                {index + 1}. {step.toolsetId}/{step.tool}
-              </strong>
-              <span className="muted">{step.timeout}</span>
-            </button>
-            <div className="ce-step-actions">
-              <button type="button" disabled={index === 0} onClick={() => onMoveStep(index, index - 1)}>
-                ↑
+            <div className="cfg-step-head">
+              <button type="button" className="cfg-step-hit" onClick={() => onSelectStep(index)}>
+                <div className="ws-line">
+                  <h3>
+                    {index + 1}. {step.tool}
+                  </h3>
+                  <span className="chip chip-mono">
+                    {step.toolsetId}/{step.tool}
+                  </span>
+                  <span className="chip chip-muted">{step.timeout}</span>
+                </div>
               </button>
-              <button
-                type="button"
-                disabled={index === target.steps.length - 1}
-                onClick={() => onMoveStep(index, index + 1)}
-              >
-                ↓
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  if (target.steps.length <= 1) {
-                    return;
-                  }
-                  onChangeTarget((t) => ({
-                    ...t,
-                    steps: t.steps.filter((_, i) => i !== index),
-                  }));
-                }}
-              >
-                删
-              </button>
+              <div className="cfg-step-actions">
+                <button
+                  type="button"
+                  className="btn btn-icon btn-sm btn-quiet"
+                  disabled={index === 0}
+                  title="上移"
+                  aria-label="上移"
+                  onClick={() => onMoveStep(index, index - 1)}
+                >
+                  <Icon name="up" />
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-icon btn-sm btn-quiet"
+                  disabled={index === target.steps.length - 1}
+                  title="下移"
+                  aria-label="下移"
+                  onClick={() => onMoveStep(index, index + 1)}
+                >
+                  <Icon name="down" />
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-icon btn-sm btn-quiet"
+                  title="删除步骤"
+                  aria-label="删除步骤"
+                  onClick={() => {
+                    if (target.steps.length <= 1) {
+                      return;
+                    }
+                    onChangeTarget((t) => ({
+                      ...t,
+                      steps: t.steps.filter((_, i) => i !== index),
+                    }));
+                  }}
+                >
+                  <Icon name="trash" />
+                </button>
+              </div>
             </div>
             {index === selectedStepIndex && (
               <StepForm
@@ -589,11 +779,11 @@ function TargetEditor(props: {
                 onChange={(updater) => onChangeStep(index, updater)}
               />
             )}
-          </li>
+          </article>
         ))}
-      </ol>
+      </div>
 
-      <div className="ce-danger">
+      <div className="cfg-danger">
         <button type="button" className="btn btn-danger" onClick={onDeleteTarget}>
           删除此目标
         </button>
@@ -630,7 +820,7 @@ function StepForm({
   const optional = params.filter((p) => !p.required);
 
   return (
-    <div className="ce-step-form">
+    <div className="cfg-step-form">
       <label>
         工具
         <select
@@ -668,7 +858,7 @@ function StepForm({
           />
         ))}
       </div>
-      <details className="ce-advanced">
+      <details className="cfg-advanced">
         <summary>高级选项</summary>
         <div className="param-grid">
           {optional.map((param) => (

@@ -18,3 +18,4 @@ Architecture Decision Record。一条 ADR 只记**一个**决定：当时面对�
 | [0003](0003-windows-taskbar-icon.md) | Windows 任务栏图标以打包 exe 内嵌资源为准 | accepted |
 | [0004](0004-user-data-dir-cronkit.md) | 用户数据目录与应用身份对齐为 `cronkit` | accepted |
 | [0005](0005-task-first-config-react-editor.md) | Task-first config v2 + React 配置编辑器 | accepted |
+| [0006](0006-full-react-form-only-panel.md) | 全站 React 壳 + 表单唯一配置编辑 | accepted |

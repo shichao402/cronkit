@@ -10,8 +10,11 @@ cronkit/
   src/
     main/                   Electron 主进程
     preload/
-    renderer/               面板（正式入口；配置页为 React）
-      config-editor/        任务优先配置编辑器
+    renderer/               面板 React 应用（仪表盘 / 配置 / 设置）
+      config-editor/        任务优先配置编辑器（状态与呈现）
+      views/                各页视图
+      components/           Toast / Icon / Snapshot 等薄封装
+      styles.css            全站设计语言（tokens + 控件）
     core/                   编排；禁止依赖 electron
     cli.ts
     shared/                 跨进程类型 / draft YAML
