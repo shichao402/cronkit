@@ -10,6 +10,8 @@ export type QuitIdleStep = {
   countIdleFrom: string;
   until: string;
   timeout: string;
+  retryInterval?: string;
+  closeWait?: string;
 };
 
 function helperScript(): string {
@@ -76,9 +78,13 @@ export async function quitIdleApps(
   };
   const script = helperScript();
   const idleForMs = parseTimeout(step.idleFor);
-  const waitMs = parseTimeout(step.timeout);
+  const retryIntervalMs = step.retryInterval ? parseTimeout(step.retryInterval) : 0;
+  const waitMs =
+    retryIntervalMs > 0 ? parseTimeout(step.closeWait ?? "3m") : parseTimeout(step.timeout);
+  const spawnTimeoutMs = parseTimeout(step.timeout) + 30_000;
   log(
-    `quit-idle ${step.processNames.join(",")} idleFor=${step.idleFor} from=${step.countIdleFrom} until=${step.until}`,
+    `quit-idle ${step.processNames.join(",")} idleFor=${step.idleFor} from=${step.countIdleFrom} until=${step.until}` +
+      (retryIntervalMs > 0 ? ` retryInterval=${step.retryInterval}` : ""),
   );
   const result = spawnSync(
     "powershell",
@@ -98,8 +104,10 @@ export async function quitIdleApps(
       step.until,
       "-WaitMs",
       String(waitMs),
+      "-RetryIntervalMs",
+      String(retryIntervalMs),
     ],
-    { encoding: "utf8", windowsHide: true, timeout: waitMs + 30_000 },
+    { encoding: "utf8", windowsHide: true, timeout: spawnTimeoutMs },
   );
   const combined = `${result.stdout || ""}\n${result.stderr || ""}`;
   log(combined.trim());
@@ -119,6 +127,9 @@ export async function quitIdleApps(
 }
 
 function describeIdleReason(action: string, code: string, parsed: Record<string, unknown>): string {
+  if (code === "leftover-no-window") {
+    return "进程仍在但没有窗口，无法正常退出（可能是残留进程）";
+  }
   if (action === "timeout" || code === "graceful-timeout") {
     return "等待正常退出超时，未强制结束（避免索引损坏）";
   }

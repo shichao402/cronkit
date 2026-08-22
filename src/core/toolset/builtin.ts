@@ -112,6 +112,8 @@ const quitIdle: ToolManifest = {
     { name: "idleFor", type: "string", required: true },
     { name: "countIdleFrom", type: "string", default: "00:00" },
     { name: "until", type: "string", default: "08:00" },
+    { name: "retryInterval", type: "string" },
+    { name: "closeWait", type: "string", default: "3m" },
   ],
 };
 
@@ -237,6 +239,8 @@ export async function runBuiltinTool(
           countIdleFrom: String(params.countIdleFrom ?? "00:00"),
           until: String(params.until ?? "08:00"),
           timeout: invocation.timeout,
+          retryInterval: typeof params.retryInterval === "string" ? params.retryInterval : undefined,
+          closeWait: typeof params.closeWait === "string" ? params.closeWait : undefined,
         },
         ctx.logFile,
       );

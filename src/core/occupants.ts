@@ -126,6 +126,34 @@ export function filterReleasable(occupants: Occupant[]): Occupant[] {
   return [...unique.values()];
 }
 
+/** Parse `tasklist /FO CSV /NH` rows; used to catch Unity even when CommandLine is empty. */
+export function parseTasklistCsv(stdout: string): Occupant[] {
+  const found: Occupant[] = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    const match = line.match(/^"([^"]+)","(\d+)"/);
+    if (!match) {
+      continue;
+    }
+    const item: Occupant = { pid: Number(match[2]), name: match[1], source: "process-name" };
+    if (!Number.isFinite(item.pid) || item.pid <= 0) {
+      continue;
+    }
+    if (isUnityEditorFamily(item)) {
+      found.push(item);
+    }
+  }
+  return found;
+}
+
+export function listUnityProcessesByName(): Occupant[] {
+  const result = spawnSync("tasklist", ["/FO", "CSV", "/NH"], {
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 15_000,
+  });
+  return parseTasklistCsv(result.stdout || "");
+}
+
 export function unityLockFiles(workspaceRoot: string): string[] {
   return [
     path.join(workspaceRoot, "Temp", "UnityLockfile"),
@@ -180,7 +208,7 @@ export async function prepareExclusiveAccess(options: {
   remainingLocks: string[];
 }> {
   const graceMs = options.graceMs ?? 20_000;
-  const first = filterReleasable(listOccupants(options.target));
+  const first = filterReleasable([...listOccupants(options.target), ...listUnityProcessesByName()]);
   if (first.length > 0) {
     for (const item of first) {
       if (options.abortSignal?.aborted) {
@@ -190,7 +218,10 @@ export async function prepareExclusiveAccess(options: {
     }
     await waitMs(Math.min(graceMs, 20_000), options.abortSignal);
 
-    const leftover = filterReleasable(listOccupants(options.target)).filter((item) => stillAlive(item.pid));
+    const leftover = filterReleasable([
+      ...listOccupants(options.target),
+      ...listUnityProcessesByName(),
+    ]).filter((item) => stillAlive(item.pid));
     for (const item of leftover) {
       if (options.abortSignal?.aborted) {
         throw new Error("已取消");
@@ -203,7 +234,10 @@ export async function prepareExclusiveAccess(options: {
     await waitMs(2_000, options.abortSignal);
   }
 
-  const remaining = filterReleasable(listOccupants(options.target));
+  const remaining = filterReleasable([
+    ...listOccupants(options.target),
+    ...listUnityProcessesByName(),
+  ]);
   if (remaining.length > 0) {
     return { closed: first, remaining, remainingLocks: unityLockFiles(options.target) };
   }
@@ -222,7 +256,10 @@ async function clearStaleUnityLocks(
     if (locks.length === 0) {
       return [];
     }
-    const unityAlive = filterReleasable(listOccupants(workspaceRoot)).filter(isUnityEditorFamily);
+    const unityAlive = filterReleasable([
+      ...listOccupants(workspaceRoot),
+      ...listUnityProcessesByName(),
+    ]).filter(isUnityEditorFamily);
     if (unityAlive.length === 0) {
       for (const file of locks) {
         try {

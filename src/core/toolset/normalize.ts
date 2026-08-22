@@ -66,6 +66,8 @@ export function normalizeStep(raw: LegacyRaw): ToolInvocation {
         idleFor: raw.idleFor,
         countIdleFrom: raw.countIdleFrom ?? "00:00",
         until: raw.until ?? "08:00",
+        ...(typeof raw.retryInterval === "string" ? { retryInterval: raw.retryInterval } : {}),
+        ...(typeof raw.closeWait === "string" ? { closeWait: raw.closeWait } : {}),
       },
       timeout: String(raw.timeout),
       retry: typeof raw.retry === "number" ? raw.retry : undefined,

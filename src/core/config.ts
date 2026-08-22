@@ -72,6 +72,8 @@ const quitIdleStepSchema = z.object({
   countIdleFrom: hhmm.default("00:00"),
   until: hhmm.default("08:00"),
   timeout: timeoutSchema,
+  retryInterval: timeoutSchema.optional(),
+  closeWait: timeoutSchema.optional(),
   continueOnError: z.boolean().optional(),
   retry: z.number().int().min(0).optional(),
 });

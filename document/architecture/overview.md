@@ -48,7 +48,7 @@ Windows 托盘调度器：读 YAML，按 cron/手动触发**自动化任务**；
 
 1. `plan` 按启用中的 cron 任务 + timezone 算下次触发。
 2. 到期后对该 task 的每个 target **分别入队**（不是跨目录串行 DAG）。
-3. `occupants` 必要时清占用（脚本在 `scripts/`）。
+3. `occupants` 必要时清占用（脚本在 `scripts/`）。独占步骤还会按进程名结束 Unity 编辑器族（不依赖命令行是否含工程路径）。
 4. 每个 target 的 steps 经 toolset 规范化后执行。
 5. 结果写入 store 与日志；窗口不可见时失败/完成可弹通知。
 6. 面板只消费 `Snapshot`，不直接跑命令；配置编辑器显式「保存并生效」。
