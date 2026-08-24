@@ -13,9 +13,15 @@ param(
 $ErrorActionPreference = "Continue"
 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()
 
+function Write-Log {
+  param([string]$Message)
+  $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+  [Console]::Error.WriteLine("[$ts] $Message")
+}
+
 function Write-Result {
   param($Object)
-  $Object | ConvertTo-Json -Compress -Depth 5
+  $Object | ConvertTo-Json -Compress -Depth 6
 }
 
 function Parse-TodayTime {
@@ -42,6 +48,12 @@ public static class IdleInput {
   public static extern bool EnumWindows(EnumProc lpEnumFunc, IntPtr lParam);
   [DllImport("user32.dll")]
   public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+  [DllImport("user32.dll")]
+  public static extern bool IsWindowVisible(IntPtr hWnd);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  public static extern int GetWindowText(IntPtr hWnd, System.Text.StringBuilder lpString, int nMaxCount);
+  [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+  public static extern int GetClassName(IntPtr hWnd, System.Text.StringBuilder lpClassName, int nMaxCount);
   public static uint IdleMs() {
     LASTINPUTINFO info = new LASTINPUTINFO();
     info.cbSize = (uint)System.Runtime.InteropServices.Marshal.SizeOf(info);
@@ -57,6 +69,71 @@ $names = @($ProcessNames.Split(",") | ForEach-Object { $_.Trim() } | Where-Objec
 
 function Get-TargetProcs {
   @(Get-Process -Name $names -ErrorAction SilentlyContinue | Where-Object { $_.Id -gt 0 })
+}
+
+function Get-WindowLines {
+  param($PidSet)
+  $script:windowLines = New-Object System.Collections.Generic.List[string]
+  if ($PidSet.Count -eq 0) { return @() }
+  $enum = {
+    param([IntPtr]$hwnd, [IntPtr]$lParam)
+    $wid = [uint32]0
+    [void][IdleInput]::GetWindowThreadProcessId($hwnd, [ref]$wid)
+    if ($PidSet.ContainsKey([int]$wid)) {
+      $title = New-Object System.Text.StringBuilder 512
+      $cls = New-Object System.Text.StringBuilder 256
+      [void][IdleInput]::GetWindowText($hwnd, $title, $title.Capacity)
+      [void][IdleInput]::GetClassName($hwnd, $cls, $cls.Capacity)
+      $vis = [IdleInput]::IsWindowVisible($hwnd)
+      $script:windowLines.Add(("hwnd=0x{0:X} pid={1} visible={2} class={3} title={4}" -f $hwnd.ToInt64(), $wid, $vis, $cls.ToString(), $title.ToString()))
+    }
+    return $true
+  }
+  try {
+    $handler = [IdleInput+EnumProc]$enum
+    [void][IdleInput]::EnumWindows($handler, [IntPtr]::Zero)
+  } catch {
+    Write-Log "EnumWindows failed: $($_.Exception.Message)"
+  }
+  return @($script:windowLines)
+}
+
+function Write-ProcDump {
+  param([string]$Label, $Procs)
+  $list = @($Procs)
+  Write-Log "$Label count=$($list.Count)"
+  $pidSet = @{}
+  foreach ($p in $list) {
+    $hwnd = [int64]0
+    $title = ""
+    $responding = $false
+    $start = ""
+    $path = ""
+    try { $hwnd = [int64]$p.MainWindowHandle } catch {}
+    try { $title = [string]$p.MainWindowTitle } catch {}
+    try { $responding = [bool]$p.Responding } catch {}
+    try { $start = $p.StartTime.ToString("s") } catch {}
+    try { $path = [string]$p.Path } catch {}
+    $cmd = ""
+    try {
+      $wmi = Get-CimInstance Win32_Process -Filter "ProcessId=$($p.Id)" -ErrorAction SilentlyContinue
+      if ($wmi) { $cmd = [string]$wmi.CommandLine }
+    } catch {}
+    Write-Log ("  {0} pid={1} session={2} responding={3} hwnd=0x{4:X} title={5} start={6} path={7}" -f $p.ProcessName, $p.Id, $p.SessionId, $responding, $hwnd, $title, $start, $path)
+    if ($cmd) { Write-Log "    cmd=$cmd" }
+    $pidSet[[int]$p.Id] = $true
+  }
+  $windows = Get-WindowLines $pidSet
+  Write-Log "$Label enum-windows=$($windows.Count)"
+  foreach ($line in $windows) { Write-Log "  $line" }
+}
+
+function Write-RelatedDump {
+  $related = @(Get-Process -ErrorAction SilentlyContinue | Where-Object {
+    $n = $_.ProcessName.ToLower()
+    $n -match "rider|jetbrains|fsnotifier"
+  })
+  Write-ProcDump "related-jetbrains" $related
 }
 
 function Get-IdleSnapshot {
@@ -82,23 +159,37 @@ function Get-IdleSnapshot {
 function Send-Close {
   param($Procs)
   foreach ($proc in $Procs) {
-    try { [void]$proc.CloseMainWindow() } catch {}
+    $ok = $false
+    $hwnd = 0
+    $title = ""
+    try { $hwnd = [int64]$proc.MainWindowHandle } catch {}
+    try { $title = [string]$proc.MainWindowTitle } catch {}
+    try { $ok = $proc.CloseMainWindow() } catch {
+      Write-Log "CloseMainWindow pid=$($proc.Id) error=$($_.Exception.Message)"
+    }
+    Write-Log "CloseMainWindow pid=$($proc.Id) hwnd=0x$($hwnd.ToString('X')) ok=$ok title=$title"
   }
   $pidSet = @{}
   foreach ($proc in $Procs) { $pidSet[[int]$proc.Id] = $true }
+  $script:postedClose = 0
   $enum = {
     param([IntPtr]$hwnd, [IntPtr]$lParam)
     $wid = [uint32]0
     [void][IdleInput]::GetWindowThreadProcessId($hwnd, [ref]$wid)
     if ($pidSet.ContainsKey([int]$wid)) {
-      [void][IdleInput]::PostMessage($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
+      $posted = [IdleInput]::PostMessage($hwnd, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero)
+      $script:postedClose += 1
+      Write-Log ("PostMessage WM_CLOSE hwnd=0x{0:X} pid={1} posted={2}" -f $hwnd.ToInt64(), $wid, $posted)
     }
     return $true
   }
   try {
     $handler = [IdleInput+EnumProc]$enum
     [void][IdleInput]::EnumWindows($handler, [IntPtr]::Zero)
-  } catch {}
+    Write-Log "PostMessage WM_CLOSE total=$($script:postedClose)"
+  } catch {
+    Write-Log "EnumWindows PostMessage failed: $($_.Exception.Message)"
+  }
 }
 
 function Wait-ForExit {
@@ -113,6 +204,8 @@ function Wait-ForExit {
       return @()
     }
     if ((Get-Date) -ge $nextResend) {
+      Write-Log "wait-resend remaining=$($alive.Count) pids=$($alive.Id -join ',')"
+      Write-ProcDump "wait-remaining" $alive
       Send-Close $alive
       $nextResend = (Get-Date).AddMilliseconds($resendEvery)
     }
@@ -144,11 +237,19 @@ function Write-Timeout {
 function Force-Kill {
   param($Procs)
   $ids = @($Procs | ForEach-Object { [int]$_.Id })
+  Write-Log "force-kill pids=$($ids -join ',')"
   foreach ($id in $ids) {
-    try { & taskkill.exe /PID $id /T /F | Out-Null } catch {}
+    try {
+      $out = & taskkill.exe /PID $id /T /F 2>&1 | Out-String
+      Write-Log "taskkill pid=$id $($out.Trim())"
+    } catch {
+      Write-Log "taskkill pid=$id error=$($_.Exception.Message)"
+    }
   }
   Start-Sleep -Milliseconds 1500
-  return @(Get-Process -Id $ids -ErrorAction SilentlyContinue)
+  $remain = @(Get-Process -Id $ids -ErrorAction SilentlyContinue)
+  Write-ProcDump "force-kill-after" $remain
+  return $remain
 }
 
 function Complete-ForceKill {
@@ -170,7 +271,10 @@ function Complete-ForceKill {
   exit 2
 }
 
+Write-Log "quit-idle names=$($names -join ',') idleForMs=$IdleForMs from=$CountIdleFrom until=$Until waitMs=$WaitMs retryIntervalMs=$RetryIntervalMs queryOnly=$QueryOnly"
 $procs = Get-TargetProcs
+Write-ProcDump "target" $procs
+Write-RelatedDump
 
 if ($QueryOnly) {
   Write-Result ([pscustomobject]@{
@@ -190,6 +294,7 @@ if ($windowEnd -le $script:windowStart) {
 }
 
 if ($now -lt $script:windowStart -or $now -ge $windowEnd) {
+  Write-Log "skip outside-window now=$($now.ToString('s')) start=$($script:windowStart.ToString('s')) end=$($windowEnd.ToString('s'))"
   Write-Result ([pscustomobject]@{
       action = "skip"
       reason = "outside-window"
@@ -201,24 +306,36 @@ if ($now -lt $script:windowStart -or $now -ge $windowEnd) {
 function Try-CloseOnce {
   $idle = Get-IdleSnapshot
   $current = Get-TargetProcs
+  Write-Log ("idle snapshot idleMs={0} elapsedMs={1} needMs={2} lastInput={3} idleStart={4} enough={5}" -f $idle.idleMs, $idle.elapsedMs, $IdleForMs, $idle.lastInput.ToString("s"), $idle.idleStart.ToString("s"), $idle.idleEnough)
+  Write-ProcDump "try-target" $current
   if (-not $idle.idleEnough) {
+    Write-Log "outcome=idle-too-short"
     return [pscustomobject]@{ outcome = "idle-too-short"; idle = $idle; procs = $current }
   }
   if ($current.Count -eq 0) {
+    Write-Log "outcome=none"
     return [pscustomobject]@{ outcome = "none"; idle = $idle; procs = $current }
   }
   if (Test-WindowlessOnly $current) {
+    Write-Log "outcome=leftover-no-window (MainWindowHandle all zero)"
+    Write-RelatedDump
     return [pscustomobject]@{ outcome = "leftover-no-window"; idle = $idle; procs = $current }
   }
   $targetPids = @($current | ForEach-Object { $_.Id })
+  Write-Log "sending close to pids=$($targetPids -join ',')"
   Send-Close $current
   $remaining = Wait-ForExit $targetPids $WaitMs
+  Write-ProcDump "after-wait" $remaining
   if ($remaining.Count -eq 0) {
+    Write-Log "outcome=closed"
     return [pscustomobject]@{ outcome = "closed"; idle = $idle; procs = $current; targetPids = $targetPids }
   }
   if (Test-WindowlessOnly $remaining) {
+    Write-Log "outcome=leftover-no-window after wait"
+    Write-RelatedDump
     return [pscustomobject]@{ outcome = "leftover-no-window"; idle = $idle; procs = $remaining; targetPids = $targetPids }
   }
+  Write-Log "outcome=timeout remaining=$($remaining.Count)"
   return [pscustomobject]@{ outcome = "timeout"; idle = $idle; procs = $remaining; targetPids = $targetPids }
 }
 

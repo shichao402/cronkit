@@ -83,7 +83,7 @@ export async function quitIdleApps(
     retryIntervalMs > 0 ? parseTimeout(step.closeWait ?? "3m") : parseTimeout(step.timeout);
   const spawnTimeoutMs = parseTimeout(step.timeout) + 30_000;
   log(
-    `quit-idle ${step.processNames.join(",")} idleFor=${step.idleFor} from=${step.countIdleFrom} until=${step.until}` +
+    `quit-idle names=${step.processNames.join(",")} idleFor=${step.idleFor} from=${step.countIdleFrom} until=${step.until} waitMs=${waitMs} spawnTimeoutMs=${spawnTimeoutMs} script=${script}` +
       (retryIntervalMs > 0 ? ` retryInterval=${step.retryInterval}` : ""),
   );
   const result = spawnSync(
@@ -109,35 +109,56 @@ export async function quitIdleApps(
     ],
     { encoding: "utf8", windowsHide: true, timeout: spawnTimeoutMs },
   );
-  const combined = `${result.stdout || ""}\n${result.stderr || ""}`;
-  log(combined.trim());
+  if (result.stderr?.trim()) {
+    log(result.stderr.trim());
+  }
+  if (result.stdout?.trim()) {
+    log(result.stdout.trim());
+  }
+  log(
+    `powershell status=${result.status ?? "null"} signal=${result.signal ?? ""} error=${result.error?.message ?? ""}`,
+  );
   if (result.error) {
     throw new Error(result.error.message);
   }
-  const parsed = parseJsonTail(result.stdout || combined);
+  const parsed = parseJsonTail(result.stdout || result.stderr || "");
+  log(`parsed action=${String(parsed.action ?? "")} reason=${String(parsed.reason ?? "")} json=${JSON.stringify(parsed)}`);
   const action = String(parsed.action ?? "");
   const reason = describeIdleReason(action, String(parsed.reason ?? ""), parsed);
   if (result.status === 2 || action === "timeout") {
     throw new Error(reason);
   }
   if (result.status !== 0) {
-    throw new Error(reason || combined.trim() || `退出码 ${result.status}`);
+    throw new Error(reason || `退出码 ${result.status}`);
   }
   return { detail: reason, code: 0, skipped: action === "skip" || action === "none" };
 }
 
-function describeIdleReason(action: string, code: string, parsed: Record<string, unknown>): string {
+function formatTags(parsed: Record<string, unknown>, key: string): string {
+  const value = parsed[key];
+  return Array.isArray(value) && value.length > 0 ? value.map(String).join(",") : "";
+}
+
+export function describeIdleReason(action: string, code: string, parsed: Record<string, unknown>): string {
+  const extra = [
+    formatTags(parsed, "remaining") ? `remaining=${formatTags(parsed, "remaining")}` : "",
+    formatTags(parsed, "killed") ? `killed=${formatTags(parsed, "killed")}` : "",
+    formatTags(parsed, "closed") ? `closed=${formatTags(parsed, "closed")}` : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const suffix = extra ? ` (${extra})` : "";
   if (code === "leftover-forced-kill") {
-    return "警告: 无窗口残留进程，已强制结束";
+    return `警告: 无窗口残留进程，已强制结束${suffix}`;
   }
   if (code === "timeout-forced-kill") {
-    return "警告: 正常退出超时，已强制结束";
+    return `警告: 正常退出超时，已强制结束${suffix}`;
   }
   if (code === "leftover-no-window") {
-    return "警告: 进程仍在但没有窗口，已尝试强制结束";
+    return `警告: 进程仍在但没有窗口，已尝试强制结束${suffix}`;
   }
   if (action === "timeout" || code === "graceful-timeout") {
-    return "等待正常退出超时，未强制结束（避免索引损坏）";
+    return `等待正常退出超时，未强制结束（避免索引损坏）${suffix}`;
   }
   if (code === "outside-window") {
     return "不在夜间窗口内";
@@ -151,7 +172,7 @@ function describeIdleReason(action: string, code: string, parsed: Record<string,
     return "没有 Rider 进程";
   }
   if (code === "closed" || action === "close") {
-    return "已发送关闭并正常退出";
+    return `已发送关闭并正常退出${suffix}`;
   }
-  return code || action;
+  return `${code || action}${suffix}`;
 }
