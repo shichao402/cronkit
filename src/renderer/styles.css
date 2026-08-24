@@ -457,19 +457,10 @@ p {
   justify-content: space-between;
   gap: 16px;
   padding: 22px 0 16px;
-  /* Opaque, not a gradient: rows scrolling underneath must not bleed through. */
-  background: var(--bg);
-}
-
-.page-head::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  top: 100%;
-  height: 14px;
-  background: linear-gradient(var(--bg), transparent);
-  pointer-events: none;
+  /* Opaque down to the last 14px of the bottom padding, so rows scrolling
+     underneath dissolve inside the header's own box instead of under the
+     content that starts right below it. */
+  background: linear-gradient(var(--bg) calc(100% - 14px), transparent);
 }
 
 .page-title {
