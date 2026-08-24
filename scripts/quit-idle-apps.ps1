@@ -141,6 +141,35 @@ function Write-Timeout {
     })
 }
 
+function Force-Kill {
+  param($Procs)
+  $ids = @($Procs | ForEach-Object { [int]$_.Id })
+  foreach ($id in $ids) {
+    try { & taskkill.exe /PID $id /T /F | Out-Null } catch {}
+  }
+  Start-Sleep -Milliseconds 1500
+  return @(Get-Process -Id $ids -ErrorAction SilentlyContinue)
+}
+
+function Complete-ForceKill {
+  param($Idle, $Procs, $Reason)
+  $before = @($Procs | ForEach-Object { ($_.ProcessName + ":" + $_.Id) })
+  $remain = Force-Kill $Procs
+  $remainTags = @($remain | ForEach-Object { ($_.ProcessName + ":" + $_.Id) })
+  Write-Result ([pscustomobject]@{
+      action    = "close"
+      reason    = $Reason
+      idleMs    = $Idle.idleMs
+      elapsedMs = $Idle.elapsedMs
+      killed    = $before
+      remaining = $remainTags
+    })
+  if ($remain.Count -eq 0) {
+    exit 0
+  }
+  exit 2
+}
+
 $procs = Get-TargetProcs
 
 if ($QueryOnly) {
@@ -228,11 +257,8 @@ if ($RetryIntervalMs -le 0) {
       })
     exit 0
   }
-  $reason = if ($result.outcome -eq "leftover-no-window") { "leftover-no-window" } else { "graceful-timeout" }
-  $pids = @($result.targetPids)
-  if (-not $pids) { $pids = @($result.procs | ForEach-Object { $_.Id }) }
-  Write-Timeout $idle $pids $result.procs $reason
-  exit 2
+  $killReason = if ($result.outcome -eq "leftover-no-window") { "leftover-forced-kill" } else { "timeout-forced-kill" }
+  Complete-ForceKill $idle $result.procs $killReason
 }
 
 $lastIdle = Get-IdleSnapshot
@@ -259,10 +285,10 @@ while ((Get-Date) -lt $windowEnd) {
     exit 0
   }
   if ($result.outcome -eq "leftover-no-window") {
-    $pids = @($result.targetPids)
-    if (-not $pids) { $pids = @($result.procs | ForEach-Object { $_.Id }) }
-    Write-Timeout $lastIdle $pids $result.procs "leftover-no-window"
-    exit 2
+    Complete-ForceKill $lastIdle $result.procs "leftover-forced-kill"
+  }
+  if ($result.outcome -eq "timeout") {
+    Complete-ForceKill $lastIdle $result.procs "timeout-forced-kill"
   }
   $sleepMs = $RetryIntervalMs
   $remainMs = [int]($windowEnd - (Get-Date)).TotalMilliseconds
@@ -294,5 +320,4 @@ if (-not $lastIdle.idleEnough) {
     })
   exit 0
 }
-Write-Timeout $lastIdle @($final | ForEach-Object { $_.Id }) $final "graceful-timeout"
-exit 2
+Complete-ForceKill $lastIdle $final "timeout-forced-kill"

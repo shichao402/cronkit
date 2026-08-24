@@ -127,8 +127,14 @@ export async function quitIdleApps(
 }
 
 function describeIdleReason(action: string, code: string, parsed: Record<string, unknown>): string {
+  if (code === "leftover-forced-kill") {
+    return "警告: 无窗口残留进程，已强制结束";
+  }
+  if (code === "timeout-forced-kill") {
+    return "警告: 正常退出超时，已强制结束";
+  }
   if (code === "leftover-no-window") {
-    return "进程仍在但没有窗口，无法正常退出（可能是残留进程）";
+    return "警告: 进程仍在但没有窗口，已尝试强制结束";
   }
   if (action === "timeout" || code === "graceful-timeout") {
     return "等待正常退出超时，未强制结束（避免索引损坏）";
