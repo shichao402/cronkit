@@ -37,6 +37,8 @@ const api = {
   setOpenAtLogin: (enabled: boolean) => ipcRenderer.invoke("setOpenAtLogin", enabled),
   setSchedulerEnabled: (enabled: boolean) => ipcRenderer.invoke("setSchedulerEnabled", enabled),
   setTheme: (theme: ThemePref) => ipcRenderer.invoke("setTheme", theme),
+  setToolsetRepo: (id: string, repo: string): Promise<Snapshot> =>
+    ipcRenderer.invoke("setToolsetRepo", id, repo),
   updateToolset: (id: string): Promise<Snapshot> => ipcRenderer.invoke("updateToolset", id),
   onSnapshot: (handler: (snapshot: Snapshot) => void): (() => void) => {
     const listener = (_event: unknown, snapshot: Snapshot): void => handler(snapshot);

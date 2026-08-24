@@ -7,6 +7,7 @@ export type PersistState = {
   version: 1;
   schedulerEnabled: boolean;
   theme: ThemePref;
+  toolsetRepos: Record<string, string>;
   keyed: Record<string, { runId: string; status: RunStatus }>;
   runs: RunRecord[];
 };
@@ -15,6 +16,7 @@ const EMPTY: PersistState = {
   version: 1,
   schedulerEnabled: false,
   theme: "system",
+  toolsetRepos: {},
   keyed: {},
   runs: [],
 };
@@ -98,6 +100,7 @@ export class Store {
       parsed.keyed ??= {};
       parsed.runs ??= [];
       parsed.schedulerEnabled ??= false;
+      parsed.toolsetRepos ??= {};
       // `iconTheme` predates full UI theming; carry the old choice over once, then drop it.
       parsed.theme = THEMES.includes(parsed.theme)
         ? parsed.theme

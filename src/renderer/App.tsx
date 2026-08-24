@@ -6,8 +6,9 @@ import { ToastProvider, useToast } from "./components/Toast";
 import { Dashboard } from "./views/Dashboard";
 import { Settings } from "./views/Settings";
 import { ConfigPage } from "./views/ConfigPage";
+import { Toolsets } from "./views/Toolsets";
 
-export type View = "dash" | "config" | "settings";
+export type View = "dash" | "config" | "toolsets" | "settings";
 
 const STATE_LABELS: Record<string, string> = {
   running: "运行中",
@@ -19,6 +20,7 @@ const STATE_LABELS: Record<string, string> = {
 const NAV: Array<{ view: View; label: string; glyph: IconName }> = [
   { view: "dash", label: "仪表盘", glyph: "gauge" },
   { view: "config", label: "配置", glyph: "sliders" },
+  { view: "toolsets", label: "工具集", glyph: "layers" },
   { view: "settings", label: "设置", glyph: "gear" },
 ];
 
@@ -70,7 +72,12 @@ function AppShell() {
       if (!event.ctrlKey || event.altKey) {
         return;
       }
-      const map: Record<string, View> = { "1": "dash", "2": "config", "3": "settings" };
+      const map: Record<string, View> = {
+        "1": "dash",
+        "2": "config",
+        "3": "toolsets",
+        "4": "settings",
+      };
       const next = map[event.key];
       if (!next) {
         return;
@@ -228,6 +235,7 @@ function AppShell() {
             }
           />
         )}
+        {view === "toolsets" && <Toolsets />}
         {view === "settings" && <Settings />}
       </main>
     </div>

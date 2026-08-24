@@ -1392,6 +1392,48 @@ kbd {
   gap: 4px;
 }
 
+.toolset-repo {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line-soft);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+.toolset-repo label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.toolset-repo-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+}
+
+.toolset-repo-row input {
+  min-width: 0;
+  padding: 7px 9px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--input-bg);
+  color: var(--text);
+  font-size: 11px;
+}
+
+.toolset-repo-row input:focus {
+  outline: 0;
+  border-color: var(--run);
+  box-shadow: 0 0 0 3px var(--run-soft);
+}
+
+.toolset-repo p {
+  font-size: 11px;
+  color: var(--muted);
+}
+
 /* --- empty state --------------------------------------------------------- */
 .empty {
   display: flex;

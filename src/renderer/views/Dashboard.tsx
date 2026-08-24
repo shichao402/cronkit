@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import type { RunRecord, Snapshot, ToolsetView, WorkspaceView } from "../../shared/types";
+import type { RunRecord, Snapshot, WorkspaceView } from "../../shared/types";
 import {
   dayLabel,
   formatAbsolute,
@@ -160,22 +160,6 @@ export function Dashboard({ onEditTarget, onGotoConfig }: Props) {
         </div>
       </section>
 
-      <section className="block">
-        <div className="block-head">
-          <h2>工具集</h2>
-        </div>
-        <div className="toolset-grid">
-          <ToolsetList
-            toolsets={snapshot.toolsets ?? []}
-            onUpdate={(id) =>
-              void handle(async () => {
-                setSnapshot(await api.updateToolset(id));
-                toast(`工具集 ${id} 已更新`);
-              }, `正在下载/更新 ${id}…`)
-            }
-          />
-        </div>
-      </section>
     </section>
   );
 }
@@ -621,69 +605,3 @@ function RunRow({
   );
 }
 
-function ToolsetList({
-  toolsets,
-  onUpdate,
-}: {
-  toolsets: ToolsetView[];
-  onUpdate: (id: string) => void;
-}) {
-  if (!toolsets.length) {
-    return (
-      <Empty
-        glyph="layers"
-        title="没有工具集"
-        hint="内置工具集通常随程序一起提供，这里为空说明数据目录不完整。"
-      />
-    );
-  }
-  return (
-    <>
-      {toolsets.map((toolset) => {
-        const ready = toolset.installed && toolset.depsReady;
-        const status = ready
-          ? `已就绪 · schema v${toolset.schemaVersion}${toolset.sha ? ` · ${toolset.sha.slice(0, 7)}` : ""}`
-          : toolset.installed
-            ? `依赖未就绪 · ${toolset.error ?? "原因未知"}`
-            : `未安装 · ${toolset.error ?? "点击下载"}`;
-        const tools = toolset.tools.slice(0, 8);
-        const rest = toolset.tools.length - tools.length;
-        return (
-          <article key={toolset.id} className="toolset">
-            <div className="toolset-head">
-              <span className={`state-dot ${ready ? "succeeded" : "failed"}`} />
-              <h3>{toolset.displayName}</h3>
-              <span className="chip chip-mono">{toolset.id}</span>
-            </div>
-            <div className="toolset-meta">
-              <span>{status}</span>
-              <span className="toolset-root" title={toolset.root}>
-                {toolset.root}
-              </span>
-            </div>
-            <div className="toolset-tools">
-              {tools.length ? (
-                tools.map((tool) => (
-                  <span key={tool.id} className="chip chip-mono">
-                    {tool.displayName || tool.id}
-                  </span>
-                ))
-              ) : (
-                <span className="chip chip-muted">没有工具</span>
-              )}
-              {rest > 0 && <span className="chip chip-muted">+{rest}</span>}
-            </div>
-            {toolset.id !== "builtin" && (
-              <div className="chip-row">
-                <button type="button" className="btn btn-sm" onClick={() => onUpdate(toolset.id)}>
-                  <Icon name="download" />
-                  {toolset.installed ? "更新" : "下载"}
-                </button>
-              </div>
-            )}
-          </article>
-        );
-      })}
-    </>
-  );
-}

@@ -40,6 +40,7 @@ export type DesktopApi = {
   setOpenAtLogin: (enabled: boolean) => Promise<void>;
   setSchedulerEnabled: (enabled: boolean) => Promise<void>;
   setTheme: (theme: ThemePref) => Promise<void>;
+  setToolsetRepo: (id: string, repo: string) => Promise<Snapshot>;
   updateToolset: (id: string) => Promise<Snapshot>;
   onSnapshot: (handler: (snapshot: Snapshot) => void) => () => void;
 };

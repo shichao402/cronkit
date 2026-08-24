@@ -70,6 +70,21 @@ const snapshot: Snapshot = {
         },
       ],
     },
+    {
+      id: "osg",
+      displayName: "OSGToolset",
+      root: "C:/Users/firoyang/AppData/Roaming/cronkit/toolsets/osg",
+      repo: "https://git.woa.com/firoyang/OSGToolset.git",
+      schemaVersion: 1,
+      sha: "8424b9b",
+      installed: true,
+      depsReady: true,
+      tools: [
+        { id: "env-check", displayName: "环境自检" },
+        { id: "restore-generated", displayName: "还原可生成文件" },
+        { id: "protobuf", displayName: "生成 Protobuf 代码" },
+      ],
+    },
   ],
   workspaces: [
     {
@@ -323,6 +338,14 @@ export function installMockApi(): void {
             : "dark"
           : theme;
       emit();
+    },
+    setToolsetRepo: async (id, repo) => {
+      const toolset = snapshot.toolsets?.find((item) => item.id === id);
+      if (toolset) {
+        toolset.repo = repo;
+      }
+      emit();
+      return clone();
     },
     updateToolset: async () => clone(),
     onSnapshot: (handler) => {

@@ -34,6 +34,7 @@ import { Store } from "./store";
 import { addDays, displayTime, localDate, nowIso, parseTimeout } from "./time";
 import { prepareExclusiveAccess } from "./occupants";
 import {
+  KNOWN_TOOLSETS,
   listInstalledToolsets,
   lookupTool,
   runToolInvocation,
@@ -99,7 +100,7 @@ export class Orchestrator extends TypedEmitter {
 
   getConfigEditor(): ConfigEditorPayload {
     const text = readConfigText(this.configPath);
-    const toolsets = listInstalledToolsets(this.dataDir);
+    const toolsets = listInstalledToolsets(this.dataDir, this.store.data.toolsetRepos);
     const revision = contentRevision(text, this.configPath);
     try {
       const detailed = parseConfigDetailed(text, this.configPath, this.dataDir, {
@@ -271,6 +272,22 @@ export class Orchestrator extends TypedEmitter {
     this.emitChange();
   }
 
+  setToolsetRepo(id: string, repo: string): void {
+    if (!KNOWN_TOOLSETS.some((toolset) => toolset.id === id)) {
+      throw new Error(`未知工具集: ${id}`);
+    }
+    if (typeof repo !== "string") {
+      throw new Error("工具集仓库地址无效");
+    }
+    const value = repo.trim();
+    if (!value) {
+      throw new Error("工具集仓库地址不能为空");
+    }
+    this.store.data.toolsetRepos[id] = value;
+    this.store.flush();
+    this.emitChange();
+  }
+
   resolvedTheme(): ResolvedTheme {
     const pref = this.store.data.theme;
     return pref === "system" ? this.systemTheme : pref;
@@ -298,7 +315,7 @@ export class Orchestrator extends TypedEmitter {
       theme: this.store.data.theme,
       resolvedTheme: this.resolvedTheme(),
       exitWarnsRunning: runningCount > 0,
-      toolsets: listInstalledToolsets(this.dataDir),
+      toolsets: listInstalledToolsets(this.dataDir, this.store.data.toolsetRepos),
       workspaces: plan.map((item) => {
         const lastRun = this.store.data.runs.find((run) => run.workspaceId === item.workspaceId);
         return {

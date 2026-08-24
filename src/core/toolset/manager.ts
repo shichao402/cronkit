@@ -47,7 +47,10 @@ export function resolveTool(
   }
 }
 
-export function listInstalledToolsets(dataDir = defaultDataDir()): InstalledToolsetInfo[] {
+export function listInstalledToolsets(
+  dataDir = defaultDataDir(),
+  repoOverrides: Record<string, string> = {},
+): InstalledToolsetInfo[] {
   const infos: InstalledToolsetInfo[] = [
     {
       id: "builtin",
@@ -62,11 +65,13 @@ export function listInstalledToolsets(dataDir = defaultDataDir()): InstalledTool
 
   for (const source of KNOWN_TOOLSETS) {
     const root = toolsetDir(source.id, dataDir);
+    const repo = repoOverrides[source.id]?.trim() || source.repo;
     if (!existsSync(path.join(root, "toolset.json"))) {
       infos.push({
         id: source.id,
         displayName: source.displayName,
         root,
+        repo,
         schemaVersion: 0,
         installed: false,
         depsReady: false,
@@ -81,6 +86,7 @@ export function listInstalledToolsets(dataDir = defaultDataDir()): InstalledTool
         id: manifest.id,
         displayName: manifest.displayName || source.displayName,
         root,
+        repo,
         schemaVersion: manifest.schemaVersion,
         sha: readSha(root),
         installed: true,
@@ -92,6 +98,7 @@ export function listInstalledToolsets(dataDir = defaultDataDir()): InstalledTool
         id: source.id,
         displayName: source.displayName,
         root,
+        repo,
         schemaVersion: 0,
         installed: false,
         depsReady: false,
@@ -120,11 +127,13 @@ export async function installOrUpdateToolset(
   id: string,
   dataDir = defaultDataDir(),
   logFile?: string,
+  repoOverride?: string,
 ): Promise<InstalledToolsetInfo> {
   const source = KNOWN_TOOLSETS.find((item) => item.id === id);
   if (!source) {
     throw new Error(`未知 toolset: ${id}`);
   }
+  const repo = repoOverride?.trim() || source.repo;
   const root = toolsetDir(id, dataDir);
   mkdirSync(toolsetsRoot(dataDir), { recursive: true });
   const log =
@@ -140,7 +149,7 @@ export async function installOrUpdateToolset(
         "--branch",
         source.branch ?? "main",
         "--single-branch",
-        source.repo,
+        repo,
         root,
       ],
       cwd: toolsetsRoot(dataDir),
@@ -151,6 +160,16 @@ export async function installOrUpdateToolset(
       throw new Error(`git clone 失败: ${clone.stderr || clone.stdout}`);
     }
   } else {
+    const setRemote = await runCommand({
+      command: "git",
+      args: ["remote", "set-url", "origin", repo],
+      cwd: root,
+      timeoutMs: 30_000,
+      logFile: log,
+    }).done;
+    if (setRemote.code !== 0) {
+      throw new Error(`设置工具集仓库失败: ${setRemote.stderr || setRemote.stdout}`);
+    }
     const pull = await runCommand({
       command: "git",
       args: ["pull", "--ff-only"],
@@ -169,6 +188,7 @@ export async function installOrUpdateToolset(
     id: manifest.id,
     displayName: manifest.displayName,
     root,
+    repo,
     schemaVersion: manifest.schemaVersion,
     sha: readSha(root),
     installed: true,

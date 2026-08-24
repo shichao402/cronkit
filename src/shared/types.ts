@@ -93,6 +93,7 @@ export type ToolsetView = {
   id: string;
   displayName: string;
   root: string;
+  repo?: string;
   schemaVersion: number;
   sha?: string;
   installed: boolean;

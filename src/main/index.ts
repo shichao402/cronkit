@@ -346,8 +346,17 @@ if (!gotLock) {
     ipcMain.handle("setTheme", (_e, theme: ThemePref) => {
       orch.setTheme(theme === "dark" || theme === "light" ? theme : "system");
     });
+    ipcMain.handle("setToolsetRepo", (_e, id: string, repo: string) => {
+      orch.setToolsetRepo(id, repo);
+      return orch.snapshot();
+    });
     ipcMain.handle("updateToolset", async (_e, id: string) => {
-      const info = await installOrUpdateToolset(id, orch.dataDir);
+      const info = await installOrUpdateToolset(
+        id,
+        orch.dataDir,
+        undefined,
+        orch.store.data.toolsetRepos[id],
+      );
       if (info.sha) {
         rememberToolsetSha(id, info.sha, orch.dataDir);
       }
