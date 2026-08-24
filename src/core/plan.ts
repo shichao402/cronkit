@@ -100,7 +100,12 @@ export function previewCron(cron: string, timezone: string, count = 3): string[]
     const expr = CronExpressionParser.parse(cron, { tz: timezone });
     const out: string[] = [];
     for (let i = 0; i < count; i += 1) {
-      out.push(expr.next().toISOString());
+      // cron-parser 对无法表示的时间点返回 null，此时后面的也没意义了。
+      const iso = expr.next().toISOString();
+      if (iso === null) {
+        break;
+      }
+      out.push(iso);
     }
     return out;
   } catch {
