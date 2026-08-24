@@ -5,6 +5,7 @@ import { useEditor } from "./context";
 import {
   createTarget,
   defaultStepParams,
+  duplicateTarget,
   findTask,
   moveStep,
   setTrigger,
@@ -301,6 +302,39 @@ export function MainPanel() {
             }}
           >
             添加目录
+          </button>
+          <button
+            type="button"
+            className="btn btn-sm"
+            disabled={!target}
+            title="连同全部步骤复制当前目录"
+            onClick={() => {
+              if (!target) {
+                return;
+              }
+              const takenIds = new Set(draft.tasks.flatMap((t) => t.targets.map((x) => x.id)));
+              const takenNames = new Set(task.targets.map((x) => x.name));
+              const copy = duplicateTarget(target, takenIds, takenNames);
+              dispatch({
+                type: "PATCH_DRAFT",
+                draft: updateTask(draft, task.id, (t) => {
+                  const targets = [...t.targets];
+                  targets.splice(t.targets.findIndex((x) => x.id === target.id) + 1, 0, copy);
+                  return { ...t, targets };
+                }),
+              });
+              dispatch({
+                type: "SELECT",
+                selection: { kind: "target", taskId: task.id, targetId: copy.id },
+              });
+              host.toast(
+                copy.path === target.path
+                  ? `已复制为「${copy.name}」，请改掉与原目录相同的路径`
+                  : `已复制为「${copy.name}」，路径已推为 ${copy.path}`,
+              );
+            }}
+          >
+            复制当前
           </button>
         </div>
         <p className="form-note">每个目标独立入队，不是跨目录串行流水线。</p>

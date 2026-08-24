@@ -235,6 +235,42 @@ export function createTarget(existingIds: Set<string>): EditorTarget {
   };
 }
 
+/** `OSGameCoreOnly4` → `OSGameCoreOnly5`；结尾没有数字时返回 undefined。 */
+function bumpTrailingNumber(value: string): string | undefined {
+  const match = /^(.*?)(\d+)$/.exec(value);
+  if (!match) {
+    return undefined;
+  }
+  const [, prefix, digits] = match;
+  const next = String(Number(digits) + 1);
+  return prefix + next.padStart(digits.length, "0");
+}
+
+function nextFreeName(value: string, taken: Set<string>, fallbackSuffix: string): string {
+  let candidate = bumpTrailingNumber(value);
+  while (candidate !== undefined && taken.has(candidate)) {
+    candidate = bumpTrailingNumber(candidate);
+  }
+  return candidate ?? uniqueId(`${value}${fallbackSuffix}`, taken);
+}
+
+/**
+ * 复制目标：步骤整份带走，id/显示名/路径的结尾序号自动加一，
+ * 让 `OSGameCoreOnly4` 复制出 `OSGameCoreOnly5` 时无需逐项重填。
+ */
+export function duplicateTarget(
+  source: EditorTarget,
+  takenIds: Set<string>,
+  takenNames: Set<string>,
+): EditorTarget {
+  return {
+    ...structuredClone(source),
+    id: nextFreeName(source.id, takenIds, "-copy"),
+    name: nextFreeName(source.name, takenNames, " 副本"),
+    path: bumpTrailingNumber(source.path.replace(/\/+$/, "")) ?? source.path,
+  };
+}
+
 export function defaultStepParams(
   toolsets: ToolsetView[],
   toolsetId: string,
