@@ -1,7 +1,7 @@
-import { spawnSync } from "node:child_process";
 import { existsSync, unlinkSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnCaptured } from "./exec";
 
 export type Occupant = {
   pid: number;
@@ -68,14 +68,26 @@ function helperScript(): string {
   return found;
 }
 
-export function listOccupants(target: string): Occupant[] {
+export async function listOccupants(target: string, abortSignal?: AbortSignal): Promise<Occupant[]> {
   const script = helperScript();
-  const result = spawnSync(
-    "powershell",
-    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-Target", target],
-    { encoding: "utf8", windowsHide: true, timeout: 30_000 },
-  );
-  const raw = (result.stdout || "").trim();
+  try {
+    const result = await spawnCaptured({
+      command: "powershell",
+      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-Target", target],
+      timeoutMs: 30_000,
+      abortSignal,
+    });
+    return parseOccupantJson(result.stdout);
+  } catch (error) {
+    if (error instanceof Error && error.message === "已取消") {
+      throw error;
+    }
+    return [];
+  }
+}
+
+function parseOccupantJson(stdout: string): Occupant[] {
+  const raw = (stdout || "").trim();
   if (!raw) {
     return [];
   }
@@ -145,13 +157,29 @@ export function parseTasklistCsv(stdout: string): Occupant[] {
   return found;
 }
 
-export function listUnityProcessesByName(): Occupant[] {
-  const result = spawnSync("tasklist", ["/FO", "CSV", "/NH"], {
-    encoding: "utf8",
-    windowsHide: true,
-    timeout: 15_000,
-  });
-  return parseTasklistCsv(result.stdout || "");
+export async function listUnityProcessesByName(abortSignal?: AbortSignal): Promise<Occupant[]> {
+  try {
+    const result = await spawnCaptured({
+      command: "tasklist",
+      args: ["/FO", "CSV", "/NH"],
+      timeoutMs: 15_000,
+      abortSignal,
+    });
+    return parseTasklistCsv(result.stdout || "");
+  } catch (error) {
+    if (error instanceof Error && error.message === "已取消") {
+      throw error;
+    }
+    return [];
+  }
+}
+
+async function scanReleasable(target: string, abortSignal?: AbortSignal): Promise<Occupant[]> {
+  const [occupants, unity] = await Promise.all([
+    listOccupants(target, abortSignal),
+    listUnityProcessesByName(abortSignal),
+  ]);
+  return filterReleasable([...occupants, ...unity]);
 }
 
 export function unityLockFiles(workspaceRoot: string): string[] {
@@ -161,17 +189,38 @@ export function unityLockFiles(workspaceRoot: string): string[] {
   ].filter((file) => existsSync(file));
 }
 
-function taskkill(pid: number, force: boolean): void {
+async function taskkill(pid: number, force: boolean, abortSignal?: AbortSignal): Promise<void> {
   const args = force ? ["/PID", String(pid), "/T", "/F"] : ["/PID", String(pid), "/T"];
-  spawnSync("taskkill", args, { windowsHide: true, stdio: "ignore" });
+  try {
+    await spawnCaptured({
+      command: "taskkill",
+      args,
+      timeoutMs: 15_000,
+      abortSignal,
+      ignoreOutput: true,
+    });
+  } catch (error) {
+    if (error instanceof Error && error.message === "已取消") {
+      throw error;
+    }
+  }
 }
 
-function stillAlive(pid: number): boolean {
-  const result = spawnSync("tasklist", ["/FI", `PID eq ${pid}`, "/NH"], {
-    encoding: "utf8",
-    windowsHide: true,
-  });
-  return (result.stdout || "").includes(String(pid));
+async function stillAlive(pid: number, abortSignal?: AbortSignal): Promise<boolean> {
+  try {
+    const result = await spawnCaptured({
+      command: "tasklist",
+      args: ["/FI", `PID eq ${pid}`, "/NH"],
+      timeoutMs: 10_000,
+      abortSignal,
+    });
+    return (result.stdout || "").includes(String(pid));
+  } catch (error) {
+    if (error instanceof Error && error.message === "已取消") {
+      throw error;
+    }
+    return false;
+  }
 }
 
 async function waitMs(ms: number, signal?: AbortSignal): Promise<void> {
@@ -208,20 +257,22 @@ export async function prepareExclusiveAccess(options: {
   remainingLocks: string[];
 }> {
   const graceMs = options.graceMs ?? 20_000;
-  const first = filterReleasable([...listOccupants(options.target), ...listUnityProcessesByName()]);
+  const first = await scanReleasable(options.target, options.abortSignal);
   if (first.length > 0) {
     for (const item of first) {
       if (options.abortSignal?.aborted) {
         throw new Error("已取消");
       }
-      taskkill(item.pid, false);
+      await taskkill(item.pid, false, options.abortSignal);
     }
     await waitMs(Math.min(graceMs, 20_000), options.abortSignal);
 
-    const leftover = filterReleasable([
-      ...listOccupants(options.target),
-      ...listUnityProcessesByName(),
-    ]).filter((item) => stillAlive(item.pid));
+    const leftover: Occupant[] = [];
+    for (const item of await scanReleasable(options.target, options.abortSignal)) {
+      if (await stillAlive(item.pid, options.abortSignal)) {
+        leftover.push(item);
+      }
+    }
     for (const item of leftover) {
       if (options.abortSignal?.aborted) {
         throw new Error("已取消");
@@ -229,15 +280,12 @@ export async function prepareExclusiveAccess(options: {
       if (isNeverForceKill(item)) {
         continue;
       }
-      taskkill(item.pid, true);
+      await taskkill(item.pid, true, options.abortSignal);
     }
     await waitMs(2_000, options.abortSignal);
   }
 
-  const remaining = filterReleasable([
-    ...listOccupants(options.target),
-    ...listUnityProcessesByName(),
-  ]);
+  const remaining = await scanReleasable(options.target, options.abortSignal);
   if (remaining.length > 0) {
     return { closed: first, remaining, remainingLocks: unityLockFiles(options.target) };
   }
@@ -256,10 +304,7 @@ async function clearStaleUnityLocks(
     if (locks.length === 0) {
       return [];
     }
-    const unityAlive = filterReleasable([
-      ...listOccupants(workspaceRoot),
-      ...listUnityProcessesByName(),
-    ]).filter(isUnityEditorFamily);
+    const unityAlive = (await scanReleasable(workspaceRoot, abortSignal)).filter(isUnityEditorFamily);
     if (unityAlive.length === 0) {
       for (const file of locks) {
         try {

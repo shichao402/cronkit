@@ -30,6 +30,107 @@ export function buildChildEnv(base: NodeJS.ProcessEnv = process.env): NodeJS.Pro
   return env;
 }
 
+export type SpawnCapturedResult = {
+  stdout: string;
+  stderr: string;
+  code: number | null;
+  timedOut: boolean;
+  cancelled: boolean;
+};
+
+/** Async spawn that does not block the Electron main thread. */
+export function spawnCaptured(options: {
+  command: string;
+  args: string[];
+  timeoutMs: number;
+  abortSignal?: AbortSignal;
+  ignoreOutput?: boolean;
+}): Promise<SpawnCapturedResult> {
+  const { command, args, timeoutMs, abortSignal, ignoreOutput } = options;
+  return new Promise((resolve, reject) => {
+    if (abortSignal?.aborted) {
+      reject(new Error("已取消"));
+      return;
+    }
+
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    let timedOut = false;
+    let cancelled = false;
+    let timer: NodeJS.Timeout | undefined;
+    let forceTimer: NodeJS.Timeout | undefined;
+
+    const proc = spawn(command, args, {
+      windowsHide: true,
+      stdio: ignoreOutput ? "ignore" : ["ignore", "pipe", "pipe"],
+    });
+
+    const forceKill = (): void => {
+      if (!proc.pid) {
+        return;
+      }
+      spawn("taskkill", ["/pid", String(proc.pid), "/T", "/F"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+    };
+
+    const finish = (code: number | null): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      if (timer) {
+        clearTimeout(timer);
+      }
+      if (forceTimer) {
+        clearTimeout(forceTimer);
+      }
+      abortSignal?.removeEventListener("abort", onAbort);
+      if (cancelled && !timedOut) {
+        reject(new Error("已取消"));
+        return;
+      }
+      resolve({ stdout, stderr, code, timedOut, cancelled });
+    };
+
+    const onAbort = (): void => {
+      cancelled = true;
+      forceKill();
+    };
+
+    if (!ignoreOutput) {
+      proc.stdout?.setEncoding("utf8");
+      proc.stderr?.setEncoding("utf8");
+      proc.stdout?.on("data", (chunk: string) => {
+        stdout = cap(stdout + chunk);
+      });
+      proc.stderr?.on("data", (chunk: string) => {
+        stderr = cap(stderr + chunk);
+      });
+    }
+    proc.on("error", () => finish(1));
+    proc.on("close", (code) => finish(code));
+
+    timer = setTimeout(() => {
+      timedOut = true;
+      cancelled = true;
+      forceKill();
+      forceTimer = setTimeout(() => {
+        if (!settled) {
+          finish(1);
+        }
+      }, 3_000);
+    }, timeoutMs);
+
+    abortSignal?.addEventListener("abort", onAbort, { once: true });
+    if (abortSignal?.aborted) {
+      onAbort();
+    }
+  });
+}
+
 export function runCommand(options: {
   command: string;
   args: string[];
