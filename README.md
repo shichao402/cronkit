@@ -58,5 +58,6 @@ npm run cli -- run --task after-midnight
 
 - 顶层是 `tasks`；步骤写 `uses: builtin/svn-update`（也兼容旧 `type:` 写法，保存后会规范化）
 - `svn-update` 的 `with.strategy`: `follow-latest` / `manual` / `disabled`
+- `svn-update` / `svn-revert` 的 `with.releaseOccupants`（默认 true）：Windows 上按本次将写入的文件查占用并结束进程；不想强杀就设 `false`
 - Unity 工程若在 SVN 根下的 `Project/`，在步骤上写 `path: Project`
 - 密钥不要写入 YAML

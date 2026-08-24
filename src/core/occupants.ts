@@ -1,6 +1,8 @@
-import { existsSync, unlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { spawnCaptured } from "./exec";
 
 export type Occupant = {
@@ -68,13 +70,18 @@ function helperScript(): string {
   return found;
 }
 
-export async function listOccupants(target: string, abortSignal?: AbortSignal): Promise<Occupant[]> {
+export async function listOccupants(
+  target: string,
+  abortSignal?: AbortSignal,
+  extraFiles?: string[],
+): Promise<Occupant[]> {
   const script = helperScript();
+  const prepared = writeFileList(extraFiles);
   try {
     const result = await spawnCaptured({
       command: "powershell",
-      args: ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-Target", target],
-      timeoutMs: 30_000,
+      args: occupantScriptArgs(script, target, prepared?.listFile),
+      timeoutMs: 60_000,
       abortSignal,
     });
     return parseOccupantJson(result.stdout);
@@ -83,7 +90,54 @@ export async function listOccupants(target: string, abortSignal?: AbortSignal): 
       throw error;
     }
     return [];
+  } finally {
+    prepared?.cleanup();
   }
+}
+
+export function listOccupantsSync(target: string, extraFiles?: string[]): Occupant[] {
+  const script = helperScript();
+  const prepared = writeFileList(extraFiles);
+  try {
+    const result = spawnSync("powershell", occupantScriptArgs(script, target, prepared?.listFile), {
+      encoding: "utf8",
+      windowsHide: true,
+      timeout: 60_000,
+    });
+    return parseOccupantJson(result.stdout || "");
+  } catch {
+    return [];
+  } finally {
+    prepared?.cleanup();
+  }
+}
+
+function occupantScriptArgs(script: string, target: string, listFile?: string): string[] {
+  const args = ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", script, "-Target", target];
+  if (listFile) {
+    args.push("-FileList", listFile);
+  }
+  return args;
+}
+
+function writeFileList(extraFiles?: string[]): { listFile: string; cleanup: () => void } | undefined {
+  const files = [...new Set((extraFiles ?? []).filter((item) => item && existsSync(item)))];
+  if (files.length === 0) {
+    return undefined;
+  }
+  const dir = mkdtempSync(path.join(os.tmpdir(), "cronkit-occ-"));
+  const listFile = path.join(dir, "files.txt");
+  writeFileSync(listFile, `\uFEFF${files.join("\r\n")}\r\n`, "utf8");
+  return {
+    listFile,
+    cleanup: () => {
+      try {
+        rmSync(dir, { recursive: true, force: true });
+      } catch {
+        // 临时目录可能已被清掉
+      }
+    },
+  };
 }
 
 function parseOccupantJson(stdout: string): Occupant[] {
@@ -174,11 +228,17 @@ export async function listUnityProcessesByName(abortSignal?: AbortSignal): Promi
   }
 }
 
-async function scanReleasable(target: string, abortSignal?: AbortSignal): Promise<Occupant[]> {
-  const [occupants, unity] = await Promise.all([
-    listOccupants(target, abortSignal),
-    listUnityProcessesByName(abortSignal),
-  ]);
+async function scanReleasable(
+  target: string,
+  abortSignal?: AbortSignal,
+  extraFiles?: string[],
+  includeUnityByName = true,
+): Promise<Occupant[]> {
+  const occupants = await listOccupants(target, abortSignal, extraFiles);
+  if (!includeUnityByName) {
+    return filterReleasable(occupants);
+  }
+  const unity = await listUnityProcessesByName(abortSignal);
   return filterReleasable([...occupants, ...unity]);
 }
 
@@ -251,13 +311,21 @@ export async function prepareExclusiveAccess(options: {
   graceMs?: number;
   abortSignal?: AbortSignal;
   lockWaitMs?: number;
+  extraFiles?: string[];
+  includeUnityByName?: boolean;
 }): Promise<{
   closed: Occupant[];
   remaining: Occupant[];
   remainingLocks: string[];
 }> {
   const graceMs = options.graceMs ?? 20_000;
-  const first = await scanReleasable(options.target, options.abortSignal);
+  const includeUnityByName = options.includeUnityByName !== false;
+  const first = await scanReleasable(
+    options.target,
+    options.abortSignal,
+    options.extraFiles,
+    includeUnityByName,
+  );
   if (first.length > 0) {
     for (const item of first) {
       if (options.abortSignal?.aborted) {
@@ -268,7 +336,12 @@ export async function prepareExclusiveAccess(options: {
     await waitMs(Math.min(graceMs, 20_000), options.abortSignal);
 
     const leftover: Occupant[] = [];
-    for (const item of await scanReleasable(options.target, options.abortSignal)) {
+    for (const item of await scanReleasable(
+      options.target,
+      options.abortSignal,
+      options.extraFiles,
+      includeUnityByName,
+    )) {
       if (await stillAlive(item.pid, options.abortSignal)) {
         leftover.push(item);
       }
@@ -285,9 +358,17 @@ export async function prepareExclusiveAccess(options: {
     await waitMs(2_000, options.abortSignal);
   }
 
-  const remaining = await scanReleasable(options.target, options.abortSignal);
+  const remaining = await scanReleasable(
+    options.target,
+    options.abortSignal,
+    options.extraFiles,
+    includeUnityByName,
+  );
   if (remaining.length > 0) {
     return { closed: first, remaining, remainingLocks: unityLockFiles(options.target) };
+  }
+  if (!includeUnityByName) {
+    return { closed: first, remaining, remainingLocks: [] };
   }
   const remainingLocks = await clearStaleUnityLocks(options.target, options.lockWaitMs ?? 10_000, options.abortSignal);
   return { closed: first, remaining, remainingLocks };

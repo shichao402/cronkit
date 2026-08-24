@@ -10,6 +10,13 @@ import {
 } from "./config";
 import { listUnityEditors, readProjectVersion } from "./unity";
 import { probeQuitIdle } from "./idle-quit";
+import { filterReleasable, listOccupantsSync } from "./occupants";
+import {
+  parseSvnStatusXml,
+  resolveWriteTargets,
+  revertWriteRelatives,
+  updateWriteRelatives,
+} from "./svn-status";
 import { lookupTool, summarizeInvocation, type ToolInvocation } from "./toolset";
 
 export type StepProbe = {
@@ -83,7 +90,13 @@ function probeInvocation(
         detail: info.stderr?.trim() || info.error?.message || "svn info 失败",
       };
     }
-    return { type, summary, ok: true, detail: `将更新到 HEAD: ${info.stdout.trim()}` };
+    const lockDetail = describeSvnWriteLockRisk(cwd, inv.params.releaseOccupants !== false);
+    return {
+      type,
+      summary,
+      ok: true,
+      detail: `将更新到 HEAD: ${info.stdout.trim()}${lockDetail ? `；${lockDetail}` : ""}`,
+    };
   }
 
   if (inv.toolsetId === "builtin" && inv.tool === "unity-warmup") {
@@ -172,4 +185,42 @@ function probeInvocation(
   }
 
   return { type, summary, ok: true, detail: `${tool.displayName} 可执行` };
+}
+
+function describeSvnWriteLockRisk(cwd: string, releaseOccupants: boolean): string {
+  const remote = spawnSync("svn", ["status", "-u", "--xml"], {
+    cwd,
+    encoding: "utf8",
+    timeout: 60_000,
+    windowsHide: true,
+  });
+  const xml = remote.status === 0 ? remote.stdout || "" : "";
+  const localOnly = remote.status !== 0;
+  const sourceXml =
+    xml.trim() ||
+    spawnSync("svn", ["status", "--xml"], {
+      cwd,
+      encoding: "utf8",
+      timeout: 30_000,
+      windowsHide: true,
+    }).stdout ||
+    "";
+  const entries = parseSvnStatusXml(sourceXml);
+  const incoming = localOnly ? [] : updateWriteRelatives(entries, false);
+  const local = revertWriteRelatives(entries);
+  const writeRels = incoming.length > 0 ? incoming : [];
+  const parts = [
+    localOnly ? "无法联系仓库，仅本地 status" : `更新将写入 ${incoming.length} 个路径`,
+    `本地脏路径 ${local.length}`,
+  ];
+  if (process.platform !== "win32" || writeRels.length === 0) {
+    return parts.join("，");
+  }
+  const occupants = filterReleasable(listOccupantsSync(cwd, resolveWriteTargets(cwd, writeRels)));
+  if (occupants.length === 0) {
+    return `${parts.join("，")}；当前未见可释放占用`;
+  }
+  const names = occupants.map((item) => `${item.name}(${item.pid})`).join(", ");
+  const action = releaseOccupants ? "实际更新时将尝试结束这些进程" : "已关闭自动释放，更新可能被独占打断";
+  return `${parts.join("，")}；可能占用: ${names}。${action}`;
 }

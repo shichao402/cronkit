@@ -144,7 +144,7 @@ export function MainPanel() {
                   })
                 }
               />
-              运行前释放目录占用
+              运行前释放目录占用（Unity / wc.db 等）。SVN 更新还可按本次写集单独处理文件独占。
             </label>
             <label>
               释放宽限 (ms)
@@ -1133,10 +1133,10 @@ function ParamField({
       <label className="check">
         <input
           type="checkbox"
-          checked={value === true}
+          checked={value === true || (value === undefined && param.default === true)}
           onChange={(e) => onChange(e.target.checked)}
         />
-        {param.name}
+        {param.description || param.name}
       </label>
     );
   }

@@ -15,7 +15,7 @@
 - 开发态固定到任务栏必然是 Electron 默认图标，不修。
 - 固定项图标不跟随浅色/深色主题。
 - 表单「保存并生效」做语义 round-trip，磁盘 YAML 注释不会保留；需要改注释请用外部编辑器。
-- 工作副本独占：`requiresExclusiveWorkspace` 已覆盖 svn-update/cleanup/revert/switch、git-pull/checkout/stash、unity-warmup、osg/revert-generated；检测靠命令行路径 / `.svn/wc.db` / `UnityLockfile`。本轮已在独占前按进程名强杀 Unity 编辑器族。后续再补：按文件句柄覆盖生成物二进制、CommandLine 为空时的其它占用进程、远端写工具要不要也走独占。先不做。
+- 工作副本独占：`requiresExclusiveWorkspace` 覆盖 svn-update/cleanup/revert/switch、git-pull/checkout/stash、unity-warmup、osg/revert-generated。SVN 更新/还原已按 `status -u` / 本地 status 的写集做文件句柄探测，步骤可用 `releaseOccupants: false` 关闭自动杀进程。后续再补：CommandLine 为空时的其它占用、远端写工具要不要也走独占。先不做。
 
 ## 明确不做
 

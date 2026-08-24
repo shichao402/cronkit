@@ -1,5 +1,5 @@
 import { GIT_TOOLS, isGitTool, runGitTool } from "../git";
-import { svnCheckAndUpdate } from "../svn";
+import { svnCheckAndUpdate, svnRevertTree } from "../svn";
 import { warmupUnity } from "../unity";
 import { quitIdleApps } from "../idle-quit";
 import { runScriptStep } from "../script";
@@ -10,6 +10,7 @@ import { validateToolParams } from "./validate";
 const svnUpdate: ToolManifest = {
   id: "svn-update",
   displayName: "SVN 更新",
+  description: "对照远端差异估计将写入的文件；Windows 上可按写集释放占用后再更新",
   idempotent: true,
   requiresExclusiveWorkspace: true,
   supportsDryRun: true,
@@ -24,6 +25,12 @@ const svnUpdate: ToolManifest = {
     { name: "onConflict", type: "enum", enum: ["fail", "revert"], default: "fail" },
     { name: "backupOnRevert", type: "boolean", default: true },
     { name: "backupDir", type: "string" },
+    {
+      name: "releaseOccupants",
+      type: "boolean",
+      default: true,
+      description: "按本次将写入的文件释放占用；独占失败会 cleanup 后重试一次。不想强杀就关掉",
+    },
     { name: "path", type: "string" },
   ],
 };
@@ -42,10 +49,17 @@ const svnCleanup: ToolManifest = {
 const svnRevert: ToolManifest = {
   id: "svn-revert",
   displayName: "SVN Revert",
+  description: "按 svn status 的本地改动估计将改写的文件；Windows 上可先释放占用",
   idempotent: true,
   requiresExclusiveWorkspace: true,
   params: [
     { name: "recursive", type: "boolean", default: true },
+    {
+      name: "releaseOccupants",
+      type: "boolean",
+      default: true,
+      description: "按本地脏文件释放占用。不想强杀就关掉",
+    },
     { name: "path", type: "string" },
   ],
 };
@@ -199,11 +213,14 @@ export async function runBuiltinTool(
         "svn cleanup",
       );
     case "svn-revert":
-      return runSvnArgs(
-        ctx,
-        ["revert", ...(params.recursive === false ? [] : ["-R"]), "."],
-        "svn revert",
-      );
+      return svnRevertTree({
+        workingCopy: ctx.cwd,
+        timeoutMs: ctx.timeoutMs,
+        logFile: ctx.logFile,
+        abortSignal: ctx.abortSignal,
+        recursive: params.recursive !== false,
+        releaseOccupants: params.releaseOccupants !== false,
+      });
     case "svn-switch":
       return runSvnArgs(ctx, ["switch", String(params.url)], "svn switch");
     case "svn-copy":
@@ -277,6 +294,7 @@ async function runSvnUpdate(
     backupOnRevert: params.backupOnRevert !== false,
     backupDir: typeof params.backupDir === "string" ? params.backupDir : undefined,
     localDate: ctx.localDate,
+    releaseOccupants: params.releaseOccupants !== false,
   });
   return { detail: result.detail, code: result.code, skipped: result.skipped };
 }

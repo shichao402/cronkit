@@ -1,6 +1,7 @@
 param(
   [Parameter(Mandatory = $true)]
-  [string]$Target
+  [string]$Target,
+  [string]$FileList = ""
 )
 
 $ErrorActionPreference = "Continue"
@@ -29,14 +30,35 @@ Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | ForEach-Object {
 }
 
 $files = New-Object System.Collections.Generic.List[string]
+function Add-File {
+  param([string]$Candidate)
+  if ([string]::IsNullOrWhiteSpace($Candidate)) { return }
+  try {
+    $full = [System.IO.Path]::GetFullPath($Candidate)
+  } catch {
+    return
+  }
+  if (Test-Path -LiteralPath $full) {
+    [void]$files.Add($full)
+  }
+}
+
 foreach ($candidate in @(
     $target,
     (Join-Path $target ".svn\wc.db"),
     (Join-Path $target "Project\Temp\UnityLockfile"),
     (Join-Path $target "Temp\UnityLockfile")
   )) {
-  if (Test-Path $candidate) { [void]$files.Add($candidate) }
+  Add-File $candidate
 }
+
+if ($FileList -and (Test-Path -LiteralPath $FileList)) {
+  Get-Content -LiteralPath $FileList -Encoding UTF8 -ErrorAction SilentlyContinue | ForEach-Object {
+    Add-File $_
+  }
+}
+
+$uniqueFiles = $files | Sort-Object -Unique
 
 $code = @"
 using System;
@@ -69,31 +91,39 @@ public static class RestartMgr {
 "@
 try { Add-Type -TypeDefinition $code -ErrorAction Stop | Out-Null } catch {}
 
-if ($files.Count -gt 0) {
+function Get-RestartManagerPids {
+  param([string[]]$Batch)
+  if ($null -eq $Batch -or $Batch.Length -eq 0) { return }
   $session = [uint32]0
   $key = [guid]::NewGuid().ToString()
   try {
-    if ([RestartMgr]::RmStartSession([ref]$session, 0, $key) -eq 0) {
-      $fileArray = $files.ToArray()
-      [void][RestartMgr]::RmRegisterResources($session, [uint32]$fileArray.Length, $fileArray, 0, [IntPtr]::Zero, 0, $null)
-      $needed = [uint32]0
-      $count = [uint32]0
-      $reason = [uint32]0
-      [void][RestartMgr]::RmGetList($session, [ref]$needed, [ref]$count, $null, [ref]$reason)
-      if ($needed -gt 0) {
-        $infos = New-Object RestartMgr+RM_PROCESS_INFO[] $needed
-        $count = $needed
-        [void][RestartMgr]::RmGetList($session, [ref]$needed, [ref]$count, $infos, [ref]$reason)
-        foreach ($info in $infos) {
-          if ($info.Process.dwProcessId -gt 0) {
-            Add-Result $info.Process.dwProcessId $info.strAppName "restart-manager" ""
-          }
-        }
+    if ([RestartMgr]::RmStartSession([ref]$session, 0, $key) -ne 0) { return }
+    [void][RestartMgr]::RmRegisterResources($session, [uint32]$Batch.Length, $Batch, 0, [IntPtr]::Zero, 0, $null)
+    $needed = [uint32]0
+    $count = [uint32]0
+    $reason = [uint32]0
+    [void][RestartMgr]::RmGetList($session, [ref]$needed, [ref]$count, $null, [ref]$reason)
+    if ($needed -le 0) { return }
+    $infos = New-Object RestartMgr+RM_PROCESS_INFO[] $needed
+    $count = $needed
+    [void][RestartMgr]::RmGetList($session, [ref]$needed, [ref]$count, $infos, [ref]$reason)
+    foreach ($info in $infos) {
+      if ($info.Process.dwProcessId -gt 0) {
+        Add-Result $info.Process.dwProcessId $info.strAppName "restart-manager" ""
       }
     }
   } catch {
   } finally {
     if ($session -ne 0) { [void][RestartMgr]::RmEndSession($session) }
+  }
+}
+
+if ($uniqueFiles) {
+  $arr = @($uniqueFiles)
+  $batchSize = 64
+  for ($i = 0; $i -lt $arr.Length; $i += $batchSize) {
+    $end = [Math]::Min($i + $batchSize - 1, $arr.Length - 1)
+    Get-RestartManagerPids -Batch $arr[$i..$end]
   }
 }
 
