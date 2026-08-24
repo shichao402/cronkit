@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { EditorStep, EditorTrigger, ToolParamView, ToolsetView } from "../../shared/types";
 import { Icon } from "../components/Icon";
 import { useEditor } from "./context";
@@ -653,6 +653,28 @@ function TargetEditor(props: {
     onDeleteTask,
   } = props;
   const pathError = issueFor(`tasks.${taskId}.targets.${target.id}.path`, issues);
+  const [toolPicker, setToolPicker] = useState<{ mode: "add" } | { mode: "edit"; index: number }>();
+
+  const chooseTool = (toolsetId: string, tool: string) => {
+    const step: EditorStep = {
+      toolsetId,
+      tool,
+      timeout: "30m",
+      params: defaultStepParams(toolsets, toolsetId, tool),
+    };
+    if (toolPicker?.mode === "edit") {
+      const previous = target.steps[toolPicker.index];
+      onChangeStep(toolPicker.index, () => ({
+        ...step,
+        timeout: previous?.timeout || "30m",
+      }));
+      onSelectStep(toolPicker.index);
+    } else {
+      onChangeTarget((t) => ({ ...t, steps: [...t.steps, step] }));
+      onSelectStep(target.steps.length);
+    }
+    setToolPicker(undefined);
+  };
 
   return (
     <div className="cfg-target">
@@ -699,16 +721,7 @@ function TargetEditor(props: {
         <button
           type="button"
           className="btn btn-sm"
-          onClick={() => {
-            const step: EditorStep = {
-              toolsetId: "builtin",
-              tool: "svn-update",
-              timeout: "30m",
-              params: defaultStepParams(toolsets, "builtin", "svn-update"),
-            };
-            onChangeTarget((t) => ({ ...t, steps: [...t.steps, step] }));
-            onSelectStep(target.steps.length);
-          }}
+          onClick={() => setToolPicker({ mode: "add" })}
         >
           添加步骤
         </button>
@@ -776,6 +789,7 @@ function TargetEditor(props: {
               <StepForm
                 step={step}
                 toolsets={toolsets}
+                onChooseTool={() => setToolPicker({ mode: "edit", index })}
                 onChange={(updater) => onChangeStep(index, updater)}
               />
             )}
@@ -791,6 +805,172 @@ function TargetEditor(props: {
           删除整个任务
         </button>
       </div>
+      {toolPicker && (
+        <ToolPicker
+          toolsets={toolsets}
+          title={toolPicker.mode === "add" ? "添加步骤" : "更换工具"}
+          current={
+            toolPicker.mode === "edit"
+              ? `${target.steps[toolPicker.index]?.toolsetId}::${target.steps[toolPicker.index]?.tool}`
+              : undefined
+          }
+          onChoose={chooseTool}
+          onClose={() => setToolPicker(undefined)}
+        />
+      )}
+    </div>
+  );
+}
+
+type ToolChoice = {
+  key: string;
+  toolsetId: string;
+  toolsetName: string;
+  toolId: string;
+  displayName: string;
+  description?: string;
+  category: string;
+};
+
+function toolCategory(toolsetId: string, toolId: string): string {
+  const id = toolId.toLowerCase();
+  if (id.startsWith("svn-")) return "SVN";
+  if (id.startsWith("git-")) return "Git";
+  if (id.includes("unity")) return "Unity";
+  if (id.includes("cmake")) return "CMake";
+  if (id.includes("proto")) return "Protobuf";
+  if (id.includes("revert") || id.includes("asset")) return "资源处理";
+  if (id.includes("script")) return "脚本";
+  return toolsetId === "builtin" ? "其他" : "工程工具";
+}
+
+function ToolPicker({
+  toolsets,
+  title,
+  current,
+  onChoose,
+  onClose,
+}: {
+  toolsets: ToolsetView[];
+  title: string;
+  current?: string;
+  onChoose: (toolsetId: string, toolId: string) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const tools = useMemo<ToolChoice[]>(
+    () =>
+      toolsets.flatMap((toolset) =>
+        toolset.tools.map((tool) => ({
+          key: `${toolset.id}::${tool.id}`,
+          toolsetId: toolset.id,
+          toolsetName: toolset.displayName,
+          toolId: tool.id,
+          displayName: tool.displayName,
+          description: tool.description,
+          category: toolCategory(toolset.id, tool.id),
+        })),
+      ),
+    [toolsets],
+  );
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLocaleLowerCase();
+    if (!needle) return tools;
+    return tools.filter((tool) =>
+      [
+        tool.displayName,
+        tool.toolId,
+        tool.description,
+        tool.toolsetName,
+        tool.category,
+      ]
+        .filter(Boolean)
+        .some((value) => value!.toLocaleLowerCase().includes(needle)),
+    );
+  }, [query, tools]);
+  const grouped = useMemo(() => {
+    const groups = new Map<string, Map<string, ToolChoice[]>>();
+    for (const tool of filtered) {
+      const categories = groups.get(tool.toolsetName) ?? new Map<string, ToolChoice[]>();
+      const items = categories.get(tool.category) ?? [];
+      items.push(tool);
+      categories.set(tool.category, items);
+      groups.set(tool.toolsetName, categories);
+    }
+    return groups;
+  }, [filtered]);
+
+  useEffect(() => {
+    searchRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+
+  return (
+    <div
+      className="cfg-tool-picker-backdrop"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section className="cfg-tool-picker" role="dialog" aria-modal="true" aria-label={title}>
+        <header className="cfg-tool-picker-head">
+          <div>
+            <h3>{title}</h3>
+            <p className="form-note">搜索或按类别选择要执行的工具</p>
+          </div>
+          <button type="button" className="btn btn-quiet btn-sm" onClick={onClose}>
+            关闭
+          </button>
+        </header>
+        <input
+          ref={searchRef}
+          className="cfg-tool-search"
+          type="search"
+          value={query}
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="搜索工具名称、ID 或说明…"
+          aria-label="搜索工具"
+        />
+        <div className="cfg-tool-results">
+          {[...grouped].map(([toolsetName, categories]) => (
+            <section className="cfg-toolset-group" key={toolsetName}>
+              <h4>{toolsetName}</h4>
+              {[...categories].map(([category, items]) => (
+                <div className="cfg-tool-category" key={category}>
+                  <div className="cfg-tool-category-name">{category}</div>
+                  <div className="cfg-tool-grid">
+                    {items.map((tool) => (
+                      <button
+                        type="button"
+                        className={`cfg-tool-option${current === tool.key ? " is-current" : ""}`}
+                        key={tool.key}
+                        onClick={() => onChoose(tool.toolsetId, tool.toolId)}
+                      >
+                        <span className="cfg-tool-option-title">
+                          <strong>{tool.displayName}</strong>
+                          {current === tool.key && <span className="chip chip-muted">当前</span>}
+                        </span>
+                        <small>{tool.description || tool.toolId}</small>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </section>
+          ))}
+          {filtered.length === 0 && (
+            <div className="cfg-tool-empty">
+              <strong>没有匹配的工具</strong>
+              <span>尝试名称、工具 ID 或类别，例如 Git、SVN、Unity。</span>
+            </div>
+          )}
+        </div>
+      </section>
     </div>
   );
 }
@@ -798,10 +978,12 @@ function TargetEditor(props: {
 function StepForm({
   step,
   toolsets,
+  onChooseTool,
   onChange,
 }: {
   step: EditorStep;
   toolsets: ToolsetView[];
+  onChooseTool: () => void;
   onChange: (updater: (s: EditorStep) => EditorStep) => void;
 }) {
   const tools = toolsets.flatMap((ts) =>
@@ -823,28 +1005,18 @@ function StepForm({
     <div className="cfg-step-form">
       <label>
         工具
-        <select
-          value={`${step.toolsetId}::${step.tool}`}
-          onChange={(e) => {
-            const [toolsetId, tool] = e.target.value.split("::");
-            onChange(() => ({
-              toolsetId,
-              tool,
-              timeout: step.timeout || "30m",
-              params: defaultStepParams(toolsets, toolsetId, tool),
-            }));
-          }}
+        <button
+          type="button"
+          className="cfg-tool-current"
+          onClick={onChooseTool}
+          aria-label="更换工具"
         >
-          {toolsets.map((ts) => (
-            <optgroup key={ts.id} label={ts.displayName}>
-              {ts.tools.map((tool) => (
-                <option key={`${ts.id}::${tool.id}`} value={`${ts.id}::${tool.id}`}>
-                  {tool.displayName}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+          <span>
+            <strong>{current?.label ?? step.tool}</strong>
+            <small>{step.toolsetId}/{step.tool}</small>
+          </span>
+          <span className="cfg-tool-change">更换</span>
+        </button>
       </label>
       <div className="param-grid">
         {required.map((param) => (
