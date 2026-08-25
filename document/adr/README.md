@@ -20,3 +20,4 @@ Architecture Decision Record。一条 ADR 只记**一个**决定：当时面对�
 | [0005](0005-task-first-config-react-editor.md) | Task-first config v2 + React 配置编辑器 | accepted |
 | [0006](0006-full-react-form-only-panel.md) | 全站 React 壳 + 表单唯一配置编辑 | accepted |
 | [0007](0007-svn-write-lock-release.md) | SVN 写集驱动的 Windows 文件独占处理 | accepted |
+| [0008](0008-toolset-checkout-resets-to-remote.md) | 工具集检出更新时以远端为准 | accepted |

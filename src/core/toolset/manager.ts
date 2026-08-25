@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 import { defaultDataDir } from "../paths";
@@ -170,15 +170,27 @@ export async function installOrUpdateToolset(
     if (setRemote.code !== 0) {
       throw new Error(`设置工具集仓库失败: ${setRemote.stderr || setRemote.stdout}`);
     }
-    const pull = await runCommand({
+    const branch = source.branch ?? "main";
+    const fetch = await runCommand({
       command: "git",
-      args: ["pull", "--ff-only"],
+      args: ["fetch", "origin", branch],
       cwd: root,
       timeoutMs: 10 * 60_000,
       logFile: log,
     }).done;
-    if (pull.code !== 0) {
-      throw new Error(`git pull 失败: ${pull.stderr || pull.stdout}`);
+    if (fetch.code !== 0) {
+      throw new Error(`git fetch 失败: ${fetch.stderr || fetch.stdout}`);
+    }
+    backupLocalChanges(root, id, dataDir, log);
+    const reset = await runCommand({
+      command: "git",
+      args: ["reset", "--hard", `origin/${branch}`],
+      cwd: root,
+      timeoutMs: 5 * 60_000,
+      logFile: log,
+    }).done;
+    if (reset.code !== 0) {
+      throw new Error(`更新到 origin/${branch} 失败: ${reset.stderr || reset.stdout}`);
     }
   }
 
@@ -195,6 +207,47 @@ export async function installOrUpdateToolset(
     depsReady: depsReady(root),
     tools: manifest.tools,
   };
+}
+
+/**
+ * 工具集检出由应用管理，更新一律以远端为准。直接改这里的文件迟早会被覆盖，
+ * 所以重置前先把已跟踪文件的改动存成 patch，留一条找回来的路。
+ */
+function backupLocalChanges(
+  root: string,
+  id: string,
+  dataDir: string,
+  logFile: string,
+): string | undefined {
+  const dirty = spawnSync("git", ["status", "--porcelain", "--untracked-files=no"], {
+    cwd: root,
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 60_000,
+  });
+  if (dirty.status !== 0 || !dirty.stdout.trim()) {
+    return undefined;
+  }
+  const patch = spawnSync("git", ["diff"], {
+    cwd: root,
+    encoding: "utf8",
+    windowsHide: true,
+    timeout: 60_000,
+    maxBuffer: 64 * 1024 * 1024,
+  });
+  if (patch.status !== 0 || !patch.stdout) {
+    return undefined;
+  }
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const file = path.join(dataDir, "logs", "toolset-install", `${id}-local-${stamp}.patch`);
+  mkdirSync(path.dirname(file), { recursive: true });
+  writeFileSync(file, patch.stdout, "utf8");
+  appendFileSync(
+    logFile,
+    `\n[cronkit] 检出有本地改动，已备份到 ${file} 后重置：\n${dirty.stdout.trim()}\n`,
+    "utf8",
+  );
+  return file;
 }
 
 async function ensureVenv(root: string, logFile: string): Promise<void> {
