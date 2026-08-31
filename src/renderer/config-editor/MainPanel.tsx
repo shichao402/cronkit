@@ -1,18 +1,35 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { EditorStep, EditorTrigger, ToolParamView, ToolsetView } from "../../shared/types";
+import type {
+  EditorStep,
+  EditorTrigger,
+  StepTemplate,
+  ToolParamView,
+  ToolsetView,
+} from "../../shared/types";
 import { Icon } from "../components/Icon";
 import { useEditor } from "./context";
 import {
+  applyTemplateToTarget,
   createTarget,
   defaultStepParams,
+  deleteTemplate,
+  detachTemplateFromTarget,
   duplicateTarget,
+  extractTemplateFromTarget,
   findTask,
+  findTemplate,
   moveStep,
+  moveTemplateStep,
   setTrigger,
+  undeclaredVarNames,
   updateStep,
   updateTarget,
   updateTask,
+  updateTemplate,
+  updateTemplateStep,
 } from "./state";
+import { collectVarNames, expandTemplate } from "../../shared/step-template";
+
 import {
   buildCron,
   describeCron,
@@ -172,16 +189,86 @@ export function MainPanel() {
     );
   }
 
+  if (selection.kind === "template" || selection.kind === "templateStep") {
+    const template = findTemplate(draft, selection.templateId);
+    if (!template) {
+      return (
+        <section className="cfg-main">
+          <div className="empty">
+            <div className="empty-title">模板不存在</div>
+            <div className="empty-hint">请重新从左侧选择一个步骤模板。</div>
+          </div>
+        </section>
+      );
+    }
+    const usedBy = draft.tasks.flatMap((task) =>
+      task.targets
+        .filter((target) => target.usesTemplate === template.id)
+        .map((target) => ({ taskName: task.name || task.id, targetName: target.name || target.id })),
+    );
+    return (
+      <TemplateEditor
+        template={template}
+        usedBy={usedBy}
+        toolsets={toolsets}
+        issues={issues}
+        selectedStepIndex={selection.kind === "templateStep" ? selection.stepIndex : -1}
+        onSelectStep={(index) =>
+          dispatch({
+            type: "SELECT",
+            selection: { kind: "templateStep", templateId: template.id, stepIndex: index },
+          })
+        }
+        onChange={(updater) =>
+          dispatch({
+            type: "PATCH_DRAFT",
+            draft: updateTemplate(draft, template.id, updater),
+          })
+        }
+        onChangeStep={(index, updater) =>
+          dispatch({
+            type: "PATCH_DRAFT",
+            draft: updateTemplateStep(draft, template.id, index, updater),
+          })
+        }
+        onMoveStep={(from, to) =>
+          dispatch({
+            type: "PATCH_DRAFT",
+            draft: moveTemplateStep(draft, template.id, from, to),
+          })
+        }
+        onDelete={() => {
+          const note =
+            usedBy.length > 0
+              ? `删除模板「${template.name}」？${usedBy.length} 个目录会改为保留各自的展开步骤。`
+              : `删除模板「${template.name}」？`;
+          if (!window.confirm(note)) {
+            return;
+          }
+          dispatch({ type: "PATCH_DRAFT", draft: deleteTemplate(draft, template.id) });
+          dispatch({ type: "SELECT", selection: { kind: "none" } });
+          host.toast("模板已删除，原引用目录已保留展开后的步骤");
+        }}
+      />
+    );
+  }
+
   if (selection.kind === "none") {
+    const onTemplates = state.railTab === "templates";
     return (
       <section className="cfg-main">
         <div className="empty">
-          <div className="empty-title">未选择任务</div>
-          <div className="empty-hint">从左侧选择一个自动化任务。</div>
+          <div className="empty-title">{onTemplates ? "未选择模板" : "未选择任务"}</div>
+          <div className="empty-hint">
+            {onTemplates
+              ? "从左侧选择一个步骤模板，或新建一个。"
+              : "从左侧选择一个自动化任务。"}
+          </div>
         </div>
       </section>
     );
   }
+
 
   const task = findTask(draft, selection.taskId);
   if (!task) {
@@ -249,23 +336,11 @@ export function MainPanel() {
         </label>
         <label>
           ID
-          <input
-            value={task.id}
-            onChange={(e) => {
-              const nextId = e.target.value;
-              dispatch({
-                type: "PATCH_DRAFT",
-                draft: {
-                  ...draft,
-                  tasks: draft.tasks.map((t) => (t.id === task.id ? { ...t, id: nextId } : t)),
-                },
-                pushHistory: false,
-              });
-              dispatch({ type: "SELECT", selection: { kind: "task", taskId: nextId } });
-            }}
-          />
+          <input value={task.id} readOnly disabled className="input-readonly" />
+          <span className="form-note">由程序自动分配，不可修改</span>
         </label>
       </div>
+
 
       <TriggerEditor
         key={task.id}
@@ -362,7 +437,42 @@ export function MainPanel() {
             selectedStepIndex={selectedStepIndex}
             toolsets={toolsets}
             issues={issues}
+            templates={draft.stepTemplates ?? []}
+            onApplyTemplate={(templateId) =>
+              dispatch({
+                type: "PATCH_DRAFT",
+                draft: applyTemplateToTarget(draft, task.id, target.id, templateId),
+              })
+            }
+            onDetachTemplate={() => {
+              dispatch({
+                type: "PATCH_DRAFT",
+                draft: detachTemplateFromTarget(draft, task.id, target.id),
+              });
+              host.toast("已解除引用，步骤已展开为该目录独有");
+            }}
+            onExtractTemplate={() => {
+              const name = window.prompt("新模板名称", `${target.name} 步骤`);
+              if (name === null) {
+                return;
+              }
+              const result = extractTemplateFromTarget(draft, task.id, target.id, name);
+              if (!result) {
+                host.toast("无法抽取模板", true);
+                return;
+              }
+              dispatch({ type: "PATCH_DRAFT", draft: result.draft });
+              dispatch({
+                type: "SELECT",
+                selection: { kind: "template", templateId: result.templateId },
+              });
+              host.toast("已抽成模板，其它目录可直接引用");
+            }}
+            onEditTemplate={(templateId) =>
+              dispatch({ type: "SELECT", selection: { kind: "template", templateId } })
+            }
             onPickFolder={async () => {
+
               const folder = await host.api.pickFolder();
               if (!folder) {
                 return;
@@ -664,6 +774,11 @@ function TargetEditor(props: {
   selectedStepIndex: number;
   toolsets: ToolsetView[];
   issues: { path: string; message: string }[];
+  templates: StepTemplate[];
+  onApplyTemplate: (templateId: string) => void;
+  onDetachTemplate: () => void;
+  onExtractTemplate: () => void;
+  onEditTemplate: (templateId: string) => void;
   onPickFolder: () => void;
   onSelectStep: (index: number) => void;
   onChangeTarget: (updater: (t: typeof props.target) => typeof props.target) => void;
@@ -678,6 +793,11 @@ function TargetEditor(props: {
     selectedStepIndex,
     toolsets,
     issues,
+    templates,
+    onApplyTemplate,
+    onDetachTemplate,
+    onExtractTemplate,
+    onEditTemplate,
     onPickFolder,
     onSelectStep,
     onChangeTarget,
@@ -688,6 +808,10 @@ function TargetEditor(props: {
   } = props;
   const pathError = issueFor(`tasks.${taskId}.targets.${target.id}.path`, issues);
   const [toolPicker, setToolPicker] = useState<{ mode: "add" } | { mode: "edit"; index: number }>();
+  const activeTemplate = target.usesTemplate
+    ? templates.find((item) => item.id === target.usesTemplate)
+    : undefined;
+
 
   const chooseTool = (toolsetId: string, tool: string) => {
     const step: EditorStep = {
@@ -722,11 +846,10 @@ function TargetEditor(props: {
         </label>
         <label>
           ID
-          <input
-            value={target.id}
-            onChange={(e) => onChangeTarget((t) => ({ ...t, id: e.target.value }))}
-          />
+          <input value={target.id} readOnly disabled className="input-readonly" />
+          <span className="form-note">由程序自动分配，不可修改</span>
         </label>
+
         <label className="span-2">
           路径
           <div className="cfg-path-row">
@@ -752,17 +875,443 @@ function TargetEditor(props: {
 
       <div className="block-head">
         <h4>步骤</h4>
-        <button
-          type="button"
-          className="btn btn-sm"
-          onClick={() => setToolPicker({ mode: "add" })}
+        {activeTemplate ? (
+          <>
+            <button
+              type="button"
+              className="btn btn-sm btn-quiet"
+              onClick={() => onEditTemplate(activeTemplate.id)}
+            >
+              编辑模板
+            </button>
+            <button type="button" className="btn btn-sm btn-quiet" onClick={onDetachTemplate}>
+              解除引用
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              type="button"
+              className="btn btn-sm"
+              onClick={() => setToolPicker({ mode: "add" })}
+            >
+              添加步骤
+            </button>
+            {target.steps.length > 0 && (
+              <button
+                type="button"
+                className="btn btn-sm btn-quiet"
+                title="把当前步骤抽成可复用模板"
+                onClick={onExtractTemplate}
+              >
+                抽成模板
+              </button>
+            )}
+          </>
+        )}
+      </div>
+
+      <label className="cfg-template-pick">
+        步骤来源
+        <select
+          value={target.usesTemplate ?? ""}
+          onChange={(e) => {
+            const value = e.target.value;
+            if (!value) {
+              onDetachTemplate();
+            } else {
+              onApplyTemplate(value);
+            }
+          }}
         >
+          <option value="">此目录独有步骤</option>
+          {templates.map((item) => (
+            <option key={item.id} value={item.id}>
+              模板：{item.name || item.id}
+            </option>
+          ))}
+        </select>
+      </label>
+
+      {activeTemplate ? (
+        <TemplateBinding
+          taskId={taskId}
+          target={target}
+          template={activeTemplate}
+          issues={issues}
+          onChangeTarget={onChangeTarget}
+        />
+      ) : (
+        <div className="rows cfg-steps">
+          {target.steps.map((step, index) => (
+            <article
+              key={`${step.toolsetId}/${step.tool}/${index}`}
+              className={`row-card cfg-step${index === selectedStepIndex ? " is-selected" : ""}`}
+            >
+              <div className="cfg-step-head">
+                <button type="button" className="cfg-step-hit" onClick={() => onSelectStep(index)}>
+                  <div className="ws-line">
+                    <h3>
+                      {index + 1}. {step.tool}
+                    </h3>
+                    <span className="chip chip-mono">
+                      {step.toolsetId}/{step.tool}
+                    </span>
+                    <span className="chip chip-muted">{step.timeout}</span>
+                  </div>
+                </button>
+                <div className="cfg-step-actions">
+                  <button
+                    type="button"
+                    className="btn btn-icon btn-sm btn-quiet"
+                    disabled={index === 0}
+                    title="上移"
+                    aria-label="上移"
+                    onClick={() => onMoveStep(index, index - 1)}
+                  >
+                    <Icon name="up" />
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-icon btn-sm btn-quiet"
+                    disabled={index === target.steps.length - 1}
+                    title="下移"
+                    aria-label="下移"
+                    onClick={() => onMoveStep(index, index + 1)}
+                  >
+                    <Icon name="down" />
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-icon btn-sm btn-quiet"
+                    title="删除步骤"
+                    aria-label="删除步骤"
+                    onClick={() => {
+                      if (target.steps.length <= 1) {
+                        return;
+                      }
+                      onChangeTarget((t) => ({
+                        ...t,
+                        steps: t.steps.filter((_, i) => i !== index),
+                      }));
+                    }}
+                  >
+                    <Icon name="trash" />
+                  </button>
+                </div>
+              </div>
+              {index === selectedStepIndex && (
+                <StepForm
+                  step={step}
+                  toolsets={toolsets}
+                  onChooseTool={() => setToolPicker({ mode: "edit", index })}
+                  onChange={(updater) => onChangeStep(index, updater)}
+                />
+              )}
+            </article>
+          ))}
+        </div>
+      )}
+
+
+      <div className="cfg-danger">
+        <button type="button" className="btn btn-danger" onClick={onDeleteTarget}>
+          删除此目标
+        </button>
+        <button type="button" className="btn btn-danger" onClick={onDeleteTask}>
+          删除整个任务
+        </button>
+      </div>
+      {toolPicker && (
+        <ToolPicker
+          toolsets={toolsets}
+          title={toolPicker.mode === "add" ? "添加步骤" : "更换工具"}
+          current={
+            toolPicker.mode === "edit"
+              ? `${target.steps[toolPicker.index]?.toolsetId}::${target.steps[toolPicker.index]?.tool}`
+              : undefined
+          }
+          onChoose={chooseTool}
+          onClose={() => setToolPicker(undefined)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** 目标侧的模板绑定视图：填变量 + 看展开结果，步骤本体只能去模板里改。 */
+function TemplateBinding(props: {
+  taskId: string;
+  target: ReturnType<typeof createTarget>;
+  template: StepTemplate;
+  issues: { path: string; message: string }[];
+  onChangeTarget: (updater: (t: typeof props.target) => typeof props.target) => void;
+}) {
+  const { taskId, target, template, issues, onChangeTarget } = props;
+  const preview = expandTemplate(template, target);
+
+  return (
+    <div className="cfg-template-binding">
+      <p className="form-note">
+        步骤来自模板「{template.name || template.id}」，共 {template.steps.length} 步。
+        改动模板会同时影响所有引用它的目录。
+      </p>
+
+      {template.vars.length > 0 && (
+        <div className="form-grid cfg-template-vars">
+          {template.vars.map((item) => {
+            const varError = issueFor(
+              `tasks.${taskId}.targets.${target.id}.vars.${item.name}`,
+              issues,
+            );
+            return (
+              <label key={item.name}>
+                {item.name}
+                <input
+                  value={target.vars?.[item.name] ?? ""}
+                  placeholder={item.default ?? "（必填）"}
+                  onChange={(e) =>
+                    onChangeTarget((t) => ({
+                      ...t,
+                      vars: { ...(t.vars ?? {}), [item.name]: e.target.value },
+                    }))
+                  }
+                />
+                {item.description && <span className="form-note">{item.description}</span>}
+                {varError && <span className="field-error">{varError}</span>}
+              </label>
+            );
+          })}
+        </div>
+      )}
+
+      {preview.issues.length > 0 && (
+        <p className="field-error">
+          {preview.issues.map((item) => item.message).join("；")}
+        </p>
+      )}
+
+      <div className="rows cfg-steps cfg-steps-readonly">
+        {preview.steps.map((step, index) => (
+          <article key={`${step.toolsetId}/${step.tool}/${index}`} className="row-card cfg-step">
+            <div className="cfg-step-head">
+              <div className="cfg-step-hit">
+                <div className="ws-line">
+                  <h3>
+                    {index + 1}. {step.tool}
+                  </h3>
+                  <span className="chip chip-mono">
+                    {step.toolsetId}/{step.tool}
+                  </span>
+                  <span className="chip chip-muted">{step.timeout}</span>
+                </div>
+              </div>
+            </div>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** 模板本体编辑：步骤 + 变量声明，一处改动全局生效。 */
+function TemplateEditor(props: {
+  template: StepTemplate;
+  usedBy: Array<{ taskName: string; targetName: string }>;
+  toolsets: ToolsetView[];
+  issues: { path: string; message: string }[];
+  selectedStepIndex: number;
+  onSelectStep: (index: number) => void;
+  onChange: (updater: (t: StepTemplate) => StepTemplate) => void;
+  onChangeStep: (index: number, updater: (s: EditorStep) => EditorStep) => void;
+  onMoveStep: (from: number, to: number) => void;
+  onDelete: () => void;
+}) {
+  const {
+    template,
+    usedBy,
+    toolsets,
+    issues,
+    selectedStepIndex,
+    onSelectStep,
+    onChange,
+    onChangeStep,
+    onMoveStep,
+    onDelete,
+  } = props;
+  const [toolPicker, setToolPicker] = useState<{ mode: "add" } | { mode: "edit"; index: number }>();
+  const missingVars = undeclaredVarNames(template);
+  const usedNames = useMemo(() => [...collectVarNames(template.steps)], [template.steps]);
+
+  const chooseTool = (toolsetId: string, tool: string) => {
+    const step: EditorStep = {
+      toolsetId,
+      tool,
+      timeout: "30m",
+      params: defaultStepParams(toolsets, toolsetId, tool),
+    };
+    if (toolPicker?.mode === "edit") {
+      const previous = template.steps[toolPicker.index];
+      onChangeStep(toolPicker.index, () => ({ ...step, timeout: previous?.timeout || "30m" }));
+      onSelectStep(toolPicker.index);
+    } else {
+      onChange((t) => ({ ...t, steps: [...t.steps, step] }));
+      onSelectStep(template.steps.length);
+    }
+    setToolPicker(undefined);
+  };
+
+  return (
+    <section className="cfg-main">
+      <header className="block-head">
+        <div>
+          <h2>{template.name || template.id}</h2>
+          <p className="form-note">步骤模板 · id: {template.id}</p>
+        </div>
+      </header>
+
+      <div className="form-grid">
+        <label>
+          模板名称
+          <input
+            value={template.name}
+            onChange={(e) => onChange((t) => ({ ...t, name: e.target.value }))}
+          />
+          {issueFor(`stepTemplates.${template.id}.name`, issues) && (
+            <span className="field-error">
+              {issueFor(`stepTemplates.${template.id}.name`, issues)}
+            </span>
+          )}
+        </label>
+        <label>
+          ID
+          <input value={template.id} readOnly disabled className="input-readonly" />
+          <span className="form-note">由程序自动分配，不可修改</span>
+        </label>
+      </div>
+
+      <div className="block cfg-section">
+        <div className="block-head">
+          <h3>变量</h3>
+          <button
+            type="button"
+            className="btn btn-sm"
+            onClick={() =>
+              onChange((t) => ({
+                ...t,
+                vars: [...t.vars, { name: `var${t.vars.length + 1}`, default: "" }],
+              }))
+            }
+          >
+            添加变量
+          </button>
+        </div>
+        <p className="form-note">
+          步骤里写 <code>{"${变量名}"}</code> 占位，各目录引用时填自己的值。
+          内置可直接用：<code>{"${target.path}"}</code>、<code>{"${target.name}"}</code>、
+          <code>{"${target.id}"}</code>。
+        </p>
+        {missingVars.length > 0 && (
+          <p className="field-error">
+            步骤里用到但未声明的变量：{missingVars.join("、")}
+            <button
+              type="button"
+              className="btn btn-sm btn-quiet"
+              onClick={() =>
+                onChange((t) => ({
+                  ...t,
+                  vars: [
+                    ...t.vars,
+                    ...missingVars.map((name) => ({ name, default: "" })),
+                  ],
+                }))
+              }
+            >
+              全部补充声明
+            </button>
+          </p>
+        )}
+        {template.vars.length === 0 ? (
+          <p className="form-note">
+            还没有变量。若各目录步骤完全一致，可不用变量。
+            {usedNames.length > 0 && `（步骤里已引用：${usedNames.join("、")}）`}
+          </p>
+        ) : (
+          <div className="rows">
+            {template.vars.map((item, index) => (
+              <div key={index} className="form-grid cfg-var-row">
+                <label>
+                  名称
+                  <input
+                    value={item.name}
+                    onChange={(e) =>
+                      onChange((t) => ({
+                        ...t,
+                        vars: t.vars.map((v, i) =>
+                          i === index ? { ...v, name: e.target.value } : v,
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  默认值
+                  <input
+                    value={item.default ?? ""}
+                    placeholder="留空表示各目录必填"
+                    onChange={(e) =>
+                      onChange((t) => ({
+                        ...t,
+                        vars: t.vars.map((v, i) =>
+                          i === index ? { ...v, default: e.target.value } : v,
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+                <label>
+                  说明
+                  <input
+                    value={item.description ?? ""}
+                    onChange={(e) =>
+                      onChange((t) => ({
+                        ...t,
+                        vars: t.vars.map((v, i) =>
+                          i === index ? { ...v, description: e.target.value } : v,
+                        ),
+                      }))
+                    }
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="btn btn-icon btn-sm btn-quiet"
+                  title="删除变量"
+                  aria-label="删除变量"
+                  onClick={() =>
+                    onChange((t) => ({ ...t, vars: t.vars.filter((_, i) => i !== index) }))
+                  }
+                >
+                  <Icon name="trash" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="block-head">
+        <h4>步骤</h4>
+        <button type="button" className="btn btn-sm" onClick={() => setToolPicker({ mode: "add" })}>
           添加步骤
         </button>
       </div>
+      {issueFor(`stepTemplates.${template.id}.steps`, issues) && (
+        <p className="field-error">{issueFor(`stepTemplates.${template.id}.steps`, issues)}</p>
+      )}
 
       <div className="rows cfg-steps">
-        {target.steps.map((step, index) => (
+        {template.steps.map((step, index) => (
           <article
             key={`${step.toolsetId}/${step.tool}/${index}`}
             className={`row-card cfg-step${index === selectedStepIndex ? " is-selected" : ""}`}
@@ -793,7 +1342,7 @@ function TargetEditor(props: {
                 <button
                   type="button"
                   className="btn btn-icon btn-sm btn-quiet"
-                  disabled={index === target.steps.length - 1}
+                  disabled={index === template.steps.length - 1}
                   title="下移"
                   aria-label="下移"
                   onClick={() => onMoveStep(index, index + 1)}
@@ -806,13 +1355,10 @@ function TargetEditor(props: {
                   title="删除步骤"
                   aria-label="删除步骤"
                   onClick={() => {
-                    if (target.steps.length <= 1) {
+                    if (template.steps.length <= 1) {
                       return;
                     }
-                    onChangeTarget((t) => ({
-                      ...t,
-                      steps: t.steps.filter((_, i) => i !== index),
-                    }));
+                    onChange((t) => ({ ...t, steps: t.steps.filter((_, i) => i !== index) }));
                   }}
                 >
                   <Icon name="trash" />
@@ -831,32 +1377,48 @@ function TargetEditor(props: {
         ))}
       </div>
 
+      <div className="block cfg-section">
+        <div className="block-head">
+          <h3>引用情况</h3>
+        </div>
+        {usedBy.length === 0 ? (
+          <p className="form-note">还没有目录引用这个模板。</p>
+        ) : (
+          <div className="cfg-target-tabs">
+            {usedBy.map((item, index) => (
+              <span key={index} className="chip chip-mono">
+                {item.taskName} / {item.targetName}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="cfg-danger">
-        <button type="button" className="btn btn-danger" onClick={onDeleteTarget}>
-          删除此目标
-        </button>
-        <button type="button" className="btn btn-danger" onClick={onDeleteTask}>
-          删除整个任务
+        <button type="button" className="btn btn-danger" onClick={onDelete}>
+          删除此模板
         </button>
       </div>
+
       {toolPicker && (
         <ToolPicker
           toolsets={toolsets}
           title={toolPicker.mode === "add" ? "添加步骤" : "更换工具"}
           current={
             toolPicker.mode === "edit"
-              ? `${target.steps[toolPicker.index]?.toolsetId}::${target.steps[toolPicker.index]?.tool}`
+              ? `${template.steps[toolPicker.index]?.toolsetId}::${template.steps[toolPicker.index]?.tool}`
               : undefined
           }
           onChoose={chooseTool}
           onClose={() => setToolPicker(undefined)}
         />
       )}
-    </div>
+    </section>
   );
 }
 
 type ToolChoice = {
+
   key: string;
   toolsetId: string;
   toolsetName: string;

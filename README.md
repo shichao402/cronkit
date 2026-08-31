@@ -57,7 +57,12 @@ npm run cli -- run --task after-midnight
 ## 配置要点
 
 - 顶层是 `tasks`；步骤写 `uses: builtin/svn-update`（也兼容旧 `type:` 写法，保存后会规范化）
+- 任务 / 目标 / 模板的 `id` 由程序自动分配、界面只读；要区分目录请改「显示名」
+- 多个目录步骤相同时抽成**步骤模板**：顶层 `stepTemplates` 定义一次，目标写 `usesTemplate: <模板 id>` 引用，一处改动全部生效
+- 模板中用 `${变量名}` 表达目录间差异，在模板的 `vars` 里声明（可给 `default`），各目标用 `vars` 填自己的值；内置可直接用 `${target.path}` / `${target.name}` / `${target.id}`
+- 某个目录要单独调整时，在面板上「解除引用」把模板展开成它独有的步骤
 - `svn-update` 的 `with.strategy`: `follow-latest` / `manual` / `disabled`
 - `svn-update` / `svn-revert` 的 `with.releaseOccupants`（默认 true）：Windows 上按本次将写入的文件查占用并结束进程；不想强杀就设 `false`
 - Unity 工程若在 SVN 根下的 `Project/`，在步骤上写 `path: Project`
 - 密钥不要写入 YAML
+

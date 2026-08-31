@@ -2100,6 +2100,126 @@ kbd {
   margin-top: 4px;
 }
 
+.input-readonly {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+/* 配置左栏的双页签：任务配置 / 步骤模板。撑满栏宽并等分。 */
+.seg-rail {
+  display: flex;
+  width: 100%;
+  margin-bottom: 14px;
+}
+
+.seg-rail button {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 7px 10px;
+  font-size: 12.5px;
+}
+
+/* 左栏底色本身接近 --panel，沿用 .seg 默认的 --panel 选中块会和底色糊在一起，
+   这里换成强调色描边 + 着色文字，跟任务卡片的选中语言保持一致。 */
+.seg-rail button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent) 14%, var(--panel));
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 42%, transparent);
+}
+
+.seg-count {
+  min-width: 17px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: color-mix(in srgb, var(--muted) 22%, transparent);
+  color: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 17px;
+  text-align: center;
+}
+
+.seg-rail button[aria-pressed="true"] .seg-count {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
+}
+
+
+
+.cfg-template-pick {
+  display: grid;
+  gap: 4px;
+  margin: 8px 0 4px;
+  max-width: 420px;
+  /* 标签沿用 .field > label 的小号灰字规范，避免比正文还抢眼。 */
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
+/* 下拉本体对齐 .field select：焦点用 --run 边框 + 柔光，
+   而不是全局 :focus-visible 那圈浏览器默认亮蓝 outline。 */
+.cfg-template-pick select {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-md);
+  background: var(--input-bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  letter-spacing: normal;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+
+.cfg-template-pick select:hover {
+  border-color: var(--muted);
+}
+
+.cfg-template-pick select:focus,
+.cfg-template-pick select:focus-visible {
+  outline: 0;
+  border-color: var(--run);
+  box-shadow: 0 0 0 3px var(--run-soft);
+}
+
+/* 模板绑定区是「只读展开结果」的容器。此前用虚线描边，在整个界面里
+   只有这一处是虚线，显得突兀；改为实线 + 轻微下沉底色，与步骤卡片一致，
+   仅靠左侧强调色竖条表达「内容来自模板」。 */
+.cfg-template-binding {
+  position: relative;
+  border: 1px solid var(--line);
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, transparent);
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--accent) 4%, transparent);
+  padding: 10px 12px;
+  margin-top: 8px;
+}
+
+
+
+.cfg-template-vars {
+  margin: 8px 0;
+}
+
+.cfg-steps-readonly .cfg-step {
+  opacity: 0.85;
+}
+
+.cfg-steps-readonly .cfg-step-hit {
+  cursor: default;
+}
+
+.cfg-var-row {
+  align-items: end;
+  gap: 8px;
+}
+
+
 .cfg-step.is-selected {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
 }
@@ -2402,7 +2522,46 @@ kbd {
   color: var(--text);
   border-radius: var(--r-md);
   padding: 7px 9px;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
 }
+
+.form-grid input:hover,
+.form-grid select:hover,
+.param-grid input:hover,
+.param-grid select:hover,
+.cfg-step-form select:hover,
+.cfg-step-form input:hover {
+  border-color: var(--muted);
+}
+
+/* 与 .field 体系保持同一种聚焦语言：清掉全局 :focus-visible 的默认 outline，
+   改用 --run 描边 + 柔光。否则配置页表单聚焦时会闪出一圈突兀的亮蓝框。 */
+.form-grid input:focus,
+.form-grid select:focus,
+.param-grid input:focus,
+.param-grid select:focus,
+.cfg-step-form select:focus,
+.cfg-step-form input:focus,
+.form-grid input:focus-visible,
+.form-grid select:focus-visible,
+.param-grid input:focus-visible,
+.param-grid select:focus-visible,
+.cfg-step-form select:focus-visible,
+.cfg-step-form input:focus-visible {
+  outline: 0;
+  border-color: var(--run);
+  box-shadow: 0 0 0 3px var(--run-soft);
+}
+
+/* 只读字段（如自动分配的 ID）不参与 hover/聚焦高亮，保持灰显的静态观感。 */
+.form-grid .input-readonly,
+.form-grid .input-readonly:hover,
+.form-grid .input-readonly:focus {
+  border-color: var(--line);
+  box-shadow: none;
+}
+
+
 
 .form-grid .check,
 .param-grid .check {

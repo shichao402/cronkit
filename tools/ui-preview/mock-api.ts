@@ -153,7 +153,44 @@ const draft: EditorDraft = {
     releaseOccupants: true,
     releaseGraceMs: 20_000,
   },
+  stepTemplates: [
+    {
+      id: "tpl-1",
+      name: "OSG 分支：更新 + Unity 预热",
+      vars: [{ name: "warmupTimeout", default: "90m" }],
+      steps: [
+        {
+          toolsetId: "builtin",
+          tool: "svn-update",
+          timeout: "2h",
+          retry: 1,
+          params: { strategy: "follow-latest", onConflict: "fail" },
+        },
+        {
+          toolsetId: "builtin",
+          tool: "unity-warmup",
+          timeout: "${warmupTimeout}",
+          params: { nographics: false },
+        },
+      ],
+    },
+    {
+      id: "tpl-2",
+      name: "CoreOnly：仅 SVN 更新",
+      vars: [],
+      steps: [
+        {
+          toolsetId: "builtin",
+          tool: "svn-update",
+          timeout: "2h",
+          params: { strategy: "follow-latest" },
+        },
+      ],
+    },
+  ],
+
   tasks: [
+
     {
       id: "nightly-0210",
       name: "夜间主更新",
@@ -165,36 +202,20 @@ const draft: EditorDraft = {
           name: "OSG 分支 1",
           path: "D:/workspace/OSG_Branch1",
           oncePerDay: true,
-          steps: [
-            {
-              toolsetId: "builtin",
-              tool: "svn-update",
-              timeout: "2h",
-              retry: 1,
-              params: { strategy: "follow-latest", onConflict: "fail" },
-            },
-            {
-              toolsetId: "builtin",
-              tool: "unity-warmup",
-              timeout: "90m",
-              params: { nographics: false },
-            },
-          ],
+          usesTemplate: "tpl-1",
+          vars: { warmupTimeout: "90m" },
+          steps: [],
         },
         {
           id: "osg-core-only",
           name: "OSGameCoreOnlyX",
           path: "D:/workspace/OSGameCoreOnlyX",
           oncePerDay: true,
-          steps: [
-            {
-              toolsetId: "builtin",
-              tool: "svn-update",
-              timeout: "2h",
-              params: { strategy: "follow-latest" },
-            },
-          ],
+          usesTemplate: "tpl-2",
+          vars: {},
+          steps: [],
         },
+
       ],
     },
   ],

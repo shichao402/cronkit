@@ -118,13 +118,36 @@ export type EditorStep = {
   params: Record<string, unknown>;
 };
 
+/** 模板声明的变量：目标引用模板时按名字填值，未填则用 default。 */
+export type TemplateVar = {
+  name: string;
+  default?: string;
+  description?: string;
+};
+
+/**
+ * 可复用的步骤序列。目标通过 `usesTemplate` 引用，
+ * 步骤内可用 `${var}` 占位，展开时以目标提供的 vars 替换。
+ */
+export type StepTemplate = {
+  id: string;
+  name: string;
+  vars: TemplateVar[];
+  steps: EditorStep[];
+};
+
 export type EditorTarget = {
   id: string;
   name: string;
   path: string;
   oncePerDay: boolean;
+  /** 引用的步骤模板 id；为空表示使用自有 steps。 */
+  usesTemplate?: string;
+  /** 模板变量取值，仅在 usesTemplate 存在时有意义。 */
+  vars?: Record<string, string>;
   steps: EditorStep[];
 };
+
 
 export type EditorTrigger =
   | { type: "cron"; cron: string }
@@ -148,10 +171,13 @@ export type EditorDraft = {
     releaseOccupants?: boolean;
     releaseGraceMs?: number;
   };
+  /** 可复用步骤模板库，跨任务共享。 */
+  stepTemplates: StepTemplate[];
   tasks: EditorTask[];
   reporting: Record<string, unknown>;
   brain: Record<string, unknown>;
 };
+
 
 export type ConfigIssue = {
   path: string;

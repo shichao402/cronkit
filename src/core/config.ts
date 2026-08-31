@@ -12,6 +12,8 @@ import {
   validateInvocationParams,
 } from "./toolset";
 import { migrateV1toV2, type MigrationResult } from "./config-migrate";
+import { expandTemplate } from "../shared/step-template";
+
 
 const timeoutSchema = z
   .string()
@@ -174,7 +176,9 @@ export const targetSchema = z.object({
   name: z.string().min(1),
   path: z.string().min(1),
   oncePerDay: z.boolean().default(true),
-  steps: z.array(stepSchema).min(1),
+  usesTemplate: z.string().min(1).optional(),
+  vars: z.record(z.string(), z.string()).optional(),
+  steps: z.array(stepSchema).default([]),
 });
 
 export const taskSchema = z.object({
@@ -185,23 +189,40 @@ export const taskSchema = z.object({
   targets: z.array(targetSchema).min(1),
 });
 
+const templateVarSchema = z.object({
+  name: z.string().min(1),
+  default: z.string().optional(),
+  description: z.string().optional(),
+});
+
+export const stepTemplateSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  vars: z.array(templateVarSchema).default([]),
+  steps: z.array(stepSchema).min(1),
+});
+
 export const configV2Schema = z.object({
   version: z.literal(2),
   timezone: z.string().min(1),
   runtime: runtimeSchema,
+  stepTemplates: z.array(stepTemplateSchema).default([]),
   tasks: z.array(taskSchema).min(1),
   reporting: reportingSchema,
   brain: brainSchema,
 });
 
+
 export type AppConfigV1 = z.infer<typeof configV1Schema>;
 export type AppConfig = z.infer<typeof configV2Schema>;
 export type Task = AppConfig["tasks"][number];
 export type Target = Task["targets"][number];
+export type StepTemplateConfig = AppConfig["stepTemplates"][number];
 /** @deprecated alias — a runnable unit is now Target */
 export type Workspace = Target;
 export type Step = Target["steps"][number];
 export type NormalizedStep = ToolInvocation;
+
 
 export type ConfigIssue = {
   path: string;
@@ -369,6 +390,58 @@ function resolveTargetPaths(config: AppConfig, filePath: string): void {
   }
 }
 
+/**
+ * 把引用了 stepTemplates 的目标展开成实际步骤，
+ * 让调度器、CLI 等下游消费方不需要知道模板的存在。
+ */
+function expandStepTemplates(config: AppConfig, filePath: string): void {
+  const templates = new Map(config.stepTemplates.map((item) => [item.id, item]));
+  const errors: string[] = [];
+
+  for (const task of config.tasks) {
+    for (const target of task.targets) {
+      if (!target.usesTemplate) {
+        if (target.steps.length === 0) {
+          errors.push(
+            `  - tasks.${task.id}.targets.${target.id}.steps: 目标既未引用模板也没有步骤`,
+          );
+        }
+        continue;
+      }
+      const template = templates.get(target.usesTemplate);
+      if (!template) {
+        errors.push(
+          `  - tasks.${task.id}.targets.${target.id}.usesTemplate: 步骤模板 ${target.usesTemplate} 不存在`,
+        );
+        continue;
+      }
+      const { steps, issues } = expandTemplate<Step>(
+        { vars: template.vars, steps: template.steps as Step[] },
+        {
+          id: target.id,
+          name: target.name,
+          path: target.path,
+          vars: target.vars,
+        },
+      );
+
+
+      for (const issue of issues) {
+        errors.push(
+          `  - tasks.${task.id}.targets.${target.id}.vars.${issue.name}: ${issue.message}`,
+        );
+      }
+      target.steps = steps;
+
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new Error(`配置校验失败: ${filePath}\n${errors.join("\n")}`);
+  }
+}
+
+
 export function parseConfigFromText(
   raw: string,
   filePath: string,
@@ -423,7 +496,10 @@ export function parseConfigDetailed(
     resolveTargetPaths(config, filePath);
   }
 
+  expandStepTemplates(config, filePath);
+
   validateV2Semantics(config, filePath, dataDir);
+
 
   return {
     config,

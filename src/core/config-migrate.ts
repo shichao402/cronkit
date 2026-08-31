@@ -92,10 +92,12 @@ export function migrateV1toV2(v1: AppConfigV1): MigrationResult {
       version: 2,
       timezone: v1.timezone,
       runtime: { ...v1.runtime },
+      stepTemplates: [],
       tasks,
       reporting: { ...v1.reporting },
       brain: { ...v1.brain },
     },
     warnings,
   };
+
 }
