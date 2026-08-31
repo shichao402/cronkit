@@ -1,3 +1,4 @@
+import type { UpdateStatus } from "../core/update/status";
 import type {
   ConfigEditorPayload,
   EditorDraft,
@@ -42,7 +43,14 @@ export type DesktopApi = {
   setTheme: (theme: ThemePref) => Promise<void>;
   setToolsetRepo: (id: string, repo: string) => Promise<Snapshot>;
   updateToolset: (id: string) => Promise<Snapshot>;
+  getUpdateStatus: () => Promise<UpdateStatus | null>;
+  checkForUpdate: () => Promise<UpdateStatus | null>;
+  downloadUpdate: () => Promise<UpdateStatus | null>;
+  skipUpdate: () => Promise<UpdateStatus | null>;
+  revealUpdate: () => Promise<{ ok: boolean; error?: string }>;
+  openUpdateManualUrl: () => Promise<{ ok: boolean; error?: string }>;
   onSnapshot: (handler: (snapshot: Snapshot) => void) => () => void;
+  onUpdateStatus: (handler: (status: UpdateStatus) => void) => () => void;
 };
 
 declare global {

@@ -5,12 +5,15 @@ import { ensureUserConfig } from "../core/bootstrap";
 import { Orchestrator } from "../core/orchestrator";
 import { defaultDataDir } from "../core/paths";
 import { installOrUpdateToolset, rememberToolsetSha } from "../core/toolset";
+import type { UpdateStatus } from "../core/update/status";
 import type { ResolvedTheme, Snapshot, ThemePref, TrayState } from "../shared/types";
 import { openPathReliable } from "./open-path";
+import { UpdateService } from "./update";
 
 let tray: Tray | undefined;
 let window: BrowserWindow | undefined;
 let orch: Orchestrator;
+let updates: UpdateService | undefined;
 let quitting = false;
 let appliedTheme: ResolvedTheme | undefined;
 let appliedPref: ThemePref | undefined;
@@ -102,6 +105,13 @@ function pushSnapshot(): void {
   applyTheme(snap);
 }
 
+function pushUpdateStatus(status: UpdateStatus): void {
+  if (window && !window.isDestroyed()) {
+    window.webContents.send("updateStatus", status);
+  }
+  applyTrayMenu();
+}
+
 const TRAY_LABELS: Record<TrayState, string> = {
   idle: "空闲",
   running: "运行中",
@@ -137,6 +147,9 @@ function showWindow(): void {
     window = createWindow();
     window.webContents.on("did-finish-load", () => {
       pushSnapshot();
+      if (updates) {
+        pushUpdateStatus(updates.snapshot());
+      }
       if (process.argv.includes("--self-test")) {
         void runSelfTest(window!);
       }
@@ -193,9 +206,41 @@ async function runSelfTest(win: BrowserWindow): Promise<void> {
     );
   } finally {
     quitting = true;
+    updates?.stop();
     orch.stop();
     app.quit();
   }
+}
+
+function updateTrayItem(): Electron.MenuItemConstructorOptions | null {
+  const status = updates?.snapshot();
+  if (!status?.enabled) {
+    return null;
+  }
+  // 标签跟着状态走：常驻托盘的程序，用户多半只看这一行就想知道要不要点。
+  if (status.phase === "ready") {
+    return { label: "更新已就绪，打开所在目录", click: () => void updates?.revealDownload() };
+  }
+  if (status.phase === "downloading") {
+    return { label: "正在下载更新…", enabled: false };
+  }
+  if (status.phase === "checking") {
+    return { label: "正在检查更新…", enabled: false };
+  }
+  if (status.phase === "available" && status.target) {
+    const prefix = status.target.mandatory ? "必须更新到" : "下载新版本";
+    return {
+      label: `${prefix} ${status.target.version}`,
+      click: () => {
+        showWindow();
+        void updates?.download();
+      },
+    };
+  }
+  if (status.phase === "manual") {
+    return { label: "需要手动更新…", click: () => void updates?.openManualUrl() };
+  }
+  return { label: "检查更新", click: () => void updates?.check(true) };
 }
 
 function applyTrayMenu(): void {
@@ -203,9 +248,11 @@ function applyTrayMenu(): void {
     return;
   }
   const pref = orch.store.data.theme;
+  const updateItem = updateTrayItem();
   const menu = Menu.buildFromTemplate([
     { label: "打开面板", click: () => showWindow() },
     { label: "立即补跑", click: () => orch.catchUpNow() },
+    ...(updateItem ? [{ type: "separator" as const }, updateItem] : []),
     { type: "separator" },
     {
       label: "主题",
@@ -226,6 +273,7 @@ function applyTrayMenu(): void {
           console.warn("退出时仍有运行中的任务，将被中断");
         }
         quitting = true;
+        updates?.stop();
         orch.stop();
         app.quit();
       },
@@ -284,7 +332,15 @@ if (!gotLock) {
       }).show();
     });
     orch.start();
+    updates = new UpdateService({
+      dataDir: orch.dataDir,
+      onChange: (status) => pushUpdateStatus(status),
+      // 换目录会打断正在跑的编排任务，所以安装时机必须让位给任务。
+      hasRunningTasks: () => orch.snapshot().exitWarnsRunning === true,
+      log: (message) => console.log(message),
+    });
     setupTray();
+    updates.start();
     ipcMain.handle("getSnapshot", () => orch.snapshot());
     ipcMain.handle("runWorkspace", (_e, id: string) => {
       void orch.runTarget(id, "manual").catch(() => undefined);
@@ -363,6 +419,18 @@ if (!gotLock) {
       orch.reloadConfig();
       return orch.snapshot();
     });
+    ipcMain.handle("getUpdateStatus", () => updates?.snapshot() ?? null);
+    ipcMain.handle("checkForUpdate", () => updates?.check(true) ?? null);
+    ipcMain.handle("downloadUpdate", () => updates?.download() ?? null);
+    ipcMain.handle("skipUpdate", () => updates?.skip() ?? null);
+    ipcMain.handle(
+      "revealUpdate",
+      () => updates?.revealDownload() ?? { ok: false, error: "更新服务未启用" },
+    );
+    ipcMain.handle(
+      "openUpdateManualUrl",
+      () => updates?.openManualUrl() ?? { ok: false, error: "更新服务未启用" },
+    );
 
     const hidden = process.argv.includes("--hidden") && orch.store.data.schedulerEnabled;
     if (!hidden || process.argv.includes("--self-test")) {

@@ -1,4 +1,5 @@
 import type { DesktopApi } from "../../src/renderer/global";
+import type { UpdateStatus, UpdateTargetInfo } from "../../src/core/update/status";
 import type {
   ConfigEditorPayload,
   EditorDraft,
@@ -245,6 +246,87 @@ if (scenario === "broken") {
 const ok = { ok: true as const };
 const listeners = new Set<(next: Snapshot) => void>();
 
+// 更新区块在预览里也要能看：默认展示「有新版本」，用 ?scenario=update-* 切换其余阶段。
+const updateListeners = new Set<(next: UpdateStatus) => void>();
+
+const updateTarget: UpdateTargetInfo = {
+  version: "0.2.0+4",
+  code: 4,
+  mandatory: scenario === "update-mandatory",
+  remainingHops: scenario === "update-chain" ? 2 : 1,
+  isFinalHop: scenario !== "update-chain",
+  releaseNotes:
+    "- 新增更新检查与下载\n- 修复 Windows 上断点续传预分配失败\n- 托盘菜单可直接查看更新状态",
+  releaseNotesUrl: "",
+  sizeBytes: 96 * 1024 * 1024,
+};
+
+function initialUpdateStatus(): UpdateStatus {
+  const base: UpdateStatus = {
+    phase: "available",
+    currentVersion: "0.1.0+1",
+    enabled: true,
+    lastCheckedAt: iso(-26 * 60_000),
+    target: updateTarget,
+  };
+  switch (scenario) {
+    case "update-current":
+      return { phase: "current", currentVersion: "0.1.0+1", enabled: true, lastCheckedAt: iso(-8 * 60_000) };
+    case "update-downloading":
+      return {
+        ...base,
+        phase: "downloading",
+        progress: {
+          receivedBytes: Math.round(updateTarget.sizeBytes * 0.42),
+          totalBytes: updateTarget.sizeBytes,
+          bytesPerSecond: 3.1 * 1024 * 1024,
+        },
+      };
+    case "update-ready":
+      return {
+        ...base,
+        phase: "ready",
+        downloadedPath: "C:/Users/firoyang/AppData/Roaming/cronkit/update-staging/cronkit-0.2.0-x64.zip",
+      };
+    case "update-failed":
+      return {
+        phase: "failed",
+        currentVersion: "0.1.0+1",
+        enabled: true,
+        lastCheckedAt: iso(-2 * 60_000),
+        message: "no usable index source",
+        attempts: [
+          "https://raw.firoyang.com/rup/directory/cronkit.pb: connect ETIMEDOUT",
+          "service:cos-guangzhou: signature check failed (unknown key id)",
+        ],
+      };
+    case "update-manual":
+      return {
+        phase: "manual",
+        currentVersion: "0.1.0+1",
+        enabled: true,
+        lastCheckedAt: iso(-2 * 60_000),
+        message: "这一版存在数据迁移缺陷，请前往下载页手动安装 0.2.1。",
+        manualUrl: "https://raw.firoyang.com/rup/notice",
+      };
+    case "update-disabled":
+      return { phase: "idle", currentVersion: "0.1.0+1", enabled: false };
+    default:
+      return base;
+  }
+}
+
+let updateStatus = initialUpdateStatus();
+
+function patchUpdate(next: Partial<UpdateStatus>): UpdateStatus {
+  updateStatus = { ...updateStatus, ...next };
+  for (const handler of updateListeners) {
+    handler(structuredClone(updateStatus));
+  }
+  return structuredClone(updateStatus);
+}
+
+
 function emit(): void {
   const copy = structuredClone(snapshot);
   for (const handler of listeners) {
@@ -369,6 +451,53 @@ export function installMockApi(): void {
       return clone();
     },
     updateToolset: async () => clone(),
+    getUpdateStatus: async () => structuredClone(updateStatus),
+    checkForUpdate: async () => {
+      patchUpdate({ phase: "checking", message: undefined, attempts: undefined });
+      await new Promise((resolve) => setTimeout(resolve, 700));
+      return patchUpdate({
+        phase: "available",
+        lastCheckedAt: new Date().toISOString(),
+        target: updateTarget,
+      });
+    },
+    downloadUpdate: async () => {
+      const total = updateTarget.sizeBytes;
+      patchUpdate({
+        phase: "downloading",
+        progress: { receivedBytes: 0, totalBytes: total, bytesPerSecond: 0 },
+      });
+      for (let step = 1; step <= 10; step += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 180));
+        patchUpdate({
+          phase: "downloading",
+          progress: {
+            receivedBytes: Math.round((total * step) / 10),
+            totalBytes: total,
+            bytesPerSecond: 3.4 * 1024 * 1024,
+          },
+        });
+      }
+      return patchUpdate({
+        phase: "ready",
+        downloadedPath:
+          "C:/Users/firoyang/AppData/Roaming/cronkit/update-staging/cronkit-0.2.0-x64.zip",
+      });
+    },
+    skipUpdate: async () =>
+      patchUpdate({
+        phase: "current",
+        target: undefined,
+        progress: undefined,
+        downloadedPath: undefined,
+        skipped: true,
+      }),
+    revealUpdate: async () => ok,
+    openUpdateManualUrl: async () => ok,
+    onUpdateStatus: (handler) => {
+      updateListeners.add(handler);
+      return () => updateListeners.delete(handler);
+    },
     onSnapshot: (handler) => {
       listeners.add(handler);
       return () => listeners.delete(handler);

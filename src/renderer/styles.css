@@ -1157,6 +1157,13 @@ kbd {
   color: var(--muted);
 }
 
+.chip-warn {
+  border-color: var(--warn-line);
+  background: var(--warn-soft);
+  color: var(--warn);
+}
+
+
 .badge {
   display: inline-flex;
   align-items: center;
@@ -1818,6 +1825,59 @@ kbd {
 
 .setting-control {
   flex: none;
+}
+
+/* --- update block -------------------------------------------------------- */
+/* 更新区块只新增两个类：发布说明和进度条。其余状态点、按钮、芯片全部复用既有体系。 */
+/* 发布说明与进度条要按整行宽度排版，而 .setting-row 是 space-between，
+   不给 setting-text 一个可增长的基准，这两块就只占内容宽度。 */
+.setting-group.update .setting-text {
+  flex: 1 1 auto;
+}
+
+.update-notes {
+  max-height: 168px;
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  font-family: var(--mono);
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.update-bar {
+  height: 5px;
+  margin-top: 9px;
+  overflow: hidden;
+  border-radius: var(--r-full);
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--line-soft);
+}
+
+.update-bar > span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--run);
+  transition: width 0.25s var(--ease);
+}
+
+.setting-text .name .state-dot {
+  display: inline-block;
+  margin-right: 6px;
+  vertical-align: 1px;
+}
+
+.setting-text .name .chip {
+  margin-left: 6px;
+  vertical-align: 1px;
 }
 
 /* ==========================================================================

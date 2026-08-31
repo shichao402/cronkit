@@ -1,6 +1,7 @@
 import type { ThemePref } from "../../shared/types";
 import { useSnapshot } from "../components/SnapshotContext";
 import { useToast } from "../components/Toast";
+import { UpdateSection } from "./UpdateSection";
 
 const THEME_TOASTS: Record<ThemePref, string> = {
   system: "主题已跟随系统",
@@ -37,7 +38,7 @@ export function Settings() {
       <header className="page-head">
         <div className="page-title">
           <h1>设置</h1>
-          <p className="page-sub">外观、调度行为与文件位置</p>
+          <p className="page-sub">外观、调度行为、更新与文件位置</p>
         </div>
       </header>
 
@@ -111,6 +112,8 @@ export function Settings() {
             </label>
           </div>
         </section>
+
+        <UpdateSection timezone={snapshot.timezone} />
 
         <section className="setting-group">
           <h2>文件位置</h2>

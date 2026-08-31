@@ -1,4 +1,5 @@
 import { contextBridge, ipcRenderer } from "electron";
+import type { UpdateStatus } from "../core/update/status";
 import type {
   ConfigEditorPayload,
   EditorDraft,
@@ -40,10 +41,23 @@ const api = {
   setToolsetRepo: (id: string, repo: string): Promise<Snapshot> =>
     ipcRenderer.invoke("setToolsetRepo", id, repo),
   updateToolset: (id: string): Promise<Snapshot> => ipcRenderer.invoke("updateToolset", id),
+  getUpdateStatus: (): Promise<UpdateStatus | null> => ipcRenderer.invoke("getUpdateStatus"),
+  checkForUpdate: (): Promise<UpdateStatus | null> => ipcRenderer.invoke("checkForUpdate"),
+  downloadUpdate: (): Promise<UpdateStatus | null> => ipcRenderer.invoke("downloadUpdate"),
+  skipUpdate: (): Promise<UpdateStatus | null> => ipcRenderer.invoke("skipUpdate"),
+  revealUpdate: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("revealUpdate"),
+  openUpdateManualUrl: (): Promise<{ ok: boolean; error?: string }> =>
+    ipcRenderer.invoke("openUpdateManualUrl"),
   onSnapshot: (handler: (snapshot: Snapshot) => void): (() => void) => {
     const listener = (_event: unknown, snapshot: Snapshot): void => handler(snapshot);
     ipcRenderer.on("snapshot", listener);
     return () => ipcRenderer.removeListener("snapshot", listener);
+  },
+  onUpdateStatus: (handler: (status: UpdateStatus) => void): (() => void) => {
+    const listener = (_event: unknown, status: UpdateStatus): void => handler(status);
+    ipcRenderer.on("updateStatus", listener);
+    return () => ipcRenderer.removeListener("updateStatus", listener);
   },
 };
 
