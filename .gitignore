@@ -8,3 +8,8 @@ self-test-result.json
 fixtures/svn-repo/
 fixtures/wc/
 fixtures/tools-wc/
+
+# relkit / RUP：签名私钥与本地发布暂存，绝不入库
+keys/
+*.private.pb
+.relkit/
