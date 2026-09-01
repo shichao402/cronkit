@@ -17,6 +17,7 @@ extraResources:
     filter:
       - list-occupants.ps1
       - quit-idle-apps.ps1
+      - apply-update.ps1
 asar: true
 win:
   icon: build/icon.png

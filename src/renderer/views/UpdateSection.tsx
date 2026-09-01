@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  canSkip,
   formatBytes,
   formatSpeed,
   hopHint,
@@ -20,6 +21,7 @@ const PHASE_TEXT: Record<UpdateStatus["phase"], string> = {
   available: "有新版本可以下载",
   downloading: "正在下载更新…",
   ready: "更新已下载完成，等待安装",
+  applying: "正在安装更新并准备重启…",
   failed: "检查更新失败",
   manual: "需要手动更新",
 };
@@ -32,6 +34,7 @@ const PHASE_DOT: Record<UpdateStatus["phase"], string> = {
   available: "queued",
   downloading: "running",
   ready: "succeeded",
+  applying: "running",
   failed: "failed",
   manual: "failed",
 };
@@ -122,7 +125,7 @@ export function UpdateSection({ timezone }: { timezone: string }) {
             )}
           </div>
           <div className="setting-control chip-row">
-            {status.phase !== "ready" && (
+            {(status.phase === "available" || status.phase === "downloading") && (
               <button
                 type="button"
                 className="btn btn-sm"
@@ -146,24 +149,40 @@ export function UpdateSection({ timezone }: { timezone: string }) {
               </button>
             )}
             {status.phase === "ready" && (
-              <button
-                type="button"
-                className="btn btn-sm"
-                onClick={() =>
-                  void handle(async () => {
-                    const result = await api.revealUpdate();
-                    if (!result.ok) {
-                      throw new Error(result.error ?? "无法打开下载目录");
-                    }
-                    toast("已打开安装包所在目录");
-                  }, "正在打开安装包所在目录…")
-                }
-              >
-                <Icon name="folder" />
-                打开所在目录
-              </button>
+              <>
+                <button
+                  type="button"
+                  className="btn btn-sm"
+                  onClick={() =>
+                    void handle(async () => {
+                      const result = await api.applyUpdate();
+                      if (!result.ok && !result.canceled) {
+                        throw new Error(result.error ?? "无法安装更新");
+                      }
+                    }, "正在准备安装…")
+                  }
+                >
+                  安装并重启
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-quiet btn-sm"
+                  onClick={() =>
+                    void handle(async () => {
+                      const result = await api.revealUpdate();
+                      if (!result.ok) {
+                        throw new Error(result.error ?? "无法打开下载目录");
+                      }
+                      toast("已打开安装包所在目录");
+                    }, "正在打开安装包所在目录…")
+                  }
+                >
+                  <Icon name="folder" />
+                  打开所在目录
+                </button>
+              </>
             )}
-            {!status.target.mandatory && !status.skipped && (
+            {canSkip(status) && !status.skipped && (
               <button
                 type="button"
                 className="btn btn-quiet btn-sm"
@@ -212,8 +231,8 @@ export function UpdateSection({ timezone }: { timezone: string }) {
           <div className="setting-text">
             <div className="name">安装方式</div>
             <div className="desc">
-              这一版只把安装包下载并校验完成，需要你手动解压覆盖安装；
-              自动替换正在开发中。安装前请确认没有任务正在运行。
+              安装时应用会退出，由独立更新程序切换版本并自动重新打开。
+              有任务正在运行时不会开始安装。
             </div>
             {status.downloadedPath && <div className="desc mono">{status.downloadedPath}</div>}
           </div>

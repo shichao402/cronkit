@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
+  buildApplyArgs,
+  parseApplySession,
+  resolveInstallDir,
+  UPDATE_EXECUTABLE,
+  versionPayloadDir,
+} from "../src/core/update/apply";
+import {
   canInstallNow,
   canSkip,
   formatBytes,
@@ -45,6 +52,7 @@ describe("update phase predicates", () => {
   it("treats only network phases as busy", () => {
     expect(isBusy(status({ phase: "checking" }))).toBe(true);
     expect(isBusy(status({ phase: "downloading" }))).toBe(true);
+    expect(isBusy(status({ phase: "applying" }))).toBe(true);
     for (const phase of ["idle", "current", "available", "ready", "failed", "manual"] as const) {
       expect(isBusy(status({ phase }))).toBe(false);
     }
@@ -126,5 +134,64 @@ describe("current code resolution", () => {
     expect(DEV_CURRENT_CODE).toBe(2147483647);
     expect(resolveCurrentCode(false)).toBe(DEV_CURRENT_CODE);
     expect(resolveCurrentCode(true)).toBe(APP_VERSION_CODE);
+  });
+});
+
+describe("versionedDir apply contract", () => {
+  it("resolves both legacy and versioned installs to the stable root", () => {
+    expect(resolveInstallDir("C:\\cronkit\\WorkspaceOrchestrator.exe")).toBe("C:\\cronkit");
+    expect(
+      resolveInstallDir("C:\\cronkit\\versions\\0.2.0+4\\WorkspaceOrchestrator.exe"),
+    ).toBe("C:\\cronkit");
+  });
+
+  it("builds the exact relkit-apply versionedDir arguments", () => {
+    const args = buildApplyArgs({
+      installDir: "C:\\cronkit",
+      stagedRoot: "C:\\data\\apply-4",
+      targetVersion: "0.2.0+4",
+      targetCode: 4,
+      sessionPath: "C:\\data\\update-apply.json",
+      logPath: "C:\\data\\update-apply.log",
+    });
+    expect(args).toContain("versionedDir");
+    expect(args).toContain(UPDATE_EXECUTABLE);
+    expect(args.slice(args.indexOf("--target-version"), args.indexOf("--target-version") + 2)).toEqual([
+      "--target-version",
+      "0.2.0+4",
+    ]);
+    expect(args.slice(args.indexOf("--retain-versions"), args.indexOf("--retain-versions") + 2)).toEqual([
+      "--retain-versions",
+      "2",
+    ]);
+  });
+
+  it("rejects unsafe version directory names", () => {
+    expect(() => versionPayloadDir("C:\\stage", "..\\escape")).toThrow("目录名");
+    expect(() =>
+      buildApplyArgs({
+        installDir: "C:\\cronkit",
+        stagedRoot: "C:\\stage",
+        targetVersion: "0.2.0+4",
+        targetCode: 0,
+        sessionPath: "C:\\session.json",
+        logPath: "C:\\apply.log",
+      }),
+    ).toThrow("正整数");
+  });
+
+  it("parses sidecar sessions without trusting malformed JSON shapes", () => {
+    expect(parseApplySession(null)).toBeNull();
+    expect(parseApplySession({ state: "done" })).toBeNull();
+    expect(
+      parseApplySession({
+        state: "failed",
+        installDir: "C:\\cronkit",
+        stagedRoot: "C:\\stage",
+        targetCode: 4,
+        targetVersion: "0.2.0+4",
+        message: "locked",
+      }),
+    ).toMatchObject({ state: "failed", targetCode: 4, message: "locked" });
   });
 });

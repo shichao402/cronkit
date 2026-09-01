@@ -13,7 +13,7 @@
     "check-version": "node scripts/sync-version.mjs --check",
     "prebuild": "node scripts/sync-version.mjs",
     "build": "electron-vite build",
-    "dist": "node scripts/sync-version.mjs && electron-vite build && electron-builder --win",
+    "dist": "node scripts/sync-version.mjs && electron-vite build && electron-builder --win --dir --config.directories.output=.release && node scripts/package-versioned.mjs .release",
     "self-test": "electron-vite build && electron . --self-test",
     "ui-preview": "vite --config tools/ui-preview/vite.config.ts",
     "cli": "tsx src/cli.ts",
@@ -28,6 +28,7 @@
   "dependencies": {
     "@bufbuild/protobuf": "^2.14.0",
     "cron-parser": "^5.4.0",
+    "extract-zip": "^2.0.1",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "rup-client": "file:../../../relkit/sdk/node",

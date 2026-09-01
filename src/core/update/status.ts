@@ -20,6 +20,8 @@ export type UpdatePhase =
   | "downloading"
   /** 已下载并校验通过，等待安装。 */
   | "ready"
+  /** 已交给独立 sidecar，主程序即将退出。 */
+  | "applying"
   /** 检查失败。 */
   | "failed"
   /** 收到签名的紧急通知，必须让用户手动处理。 */
@@ -74,7 +76,11 @@ export function initialStatus(currentVersion: string, enabled: boolean): UpdateS
 
 /** 只有这两个阶段有正在进行的网络动作，UI 据此禁用按钮。 */
 export function isBusy(status: UpdateStatus): boolean {
-  return status.phase === "checking" || status.phase === "downloading";
+  return (
+    status.phase === "checking" ||
+    status.phase === "downloading" ||
+    status.phase === "applying"
+  );
 }
 
 /**

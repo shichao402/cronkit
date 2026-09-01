@@ -1,6 +1,6 @@
 # relkit 接入计划（路线 B：自研 Node SDK）
 
-- 状态：阶段一、阶段二、阶段三前半（check/download + UI）已完成；阶段四剩 5 项，阶段三后半（apply）未开始
+- 状态：阶段一、阶段二、阶段三已完成；阶段四剩 5 项
 - 日期：2026-08-31
 - 决策：[ADR 0010](../adr/0010-relkit-node-sdk-and-onboard.md)
 - 上游仓库：`D:/workspace/GitHub/relkit`（RUP v2，`SPEC.md` 为唯一契约）
@@ -11,9 +11,8 @@
 |---|---|---|
 | 一：relkit `sdk/node` | 已完成 | 16 个源文件；`npm test` 42 项全绿（conformance 13 项 / 65 用例 + 单测 29 项）；四项级联登记已落地 |
 | 二：cronkit 工具链开箱 | 已完成 | `VERSION.json` `0.1.0+1`、`relkit.json`（COS 主后端）、`keys/` 已忽略；本地 publish + `directory set` + `verify` 全过 |
-| 三前半：客户端 check/download + UI | 已完成 | 7 个新文件 + 4 个改动文件；`tsc --noEmit` 干净、`npm test` 72 项全绿、`npm run build` 三端产物成功；UI 6 个场景视觉核对通过 |
+| 三：客户端 check/download/UI/apply | 已完成 | 前半 6 场景视觉核对通过；后半已产出稳定 launcher + versionedDir ZIP，`tsc --noEmit` 干净、`npm test` 76 项全绿 |
 | 四：冒烟验收 | 部分完成 | §4 中 6 项已在跨实现闭环冒烟里通过，剩 5 项 |
-| 三后半：versionedDir apply | 未开始 | 见 §3.6，单独一批 |
 
 跨实现闭环冒烟（用 `relkit publish` 真实产出的 v2 protobuf 喂 Node SDK）抓到两个夹具覆盖不到的缺陷，均已修并补回归用例：
 
@@ -382,6 +381,32 @@ UI 一律复用既有体系（`setting-group` / `setting-row` / `state-dot` / `b
 | 单实例锁挡住 self-test | 托盘已有实例在跑时 `npm run self-test` 直接静默退出、不写结果文件 | 这是环境冲突不是回归。视觉验证改走 `tools/ui-preview`（浏览器 mock），不必终止用户正在运行的应用 |
 | `.setting-row` 是 `space-between` | 发布说明与进度条只占内容宽度，撑不满整行 | 加 `.setting-group.update .setting-text { flex: 1 1 auto; }`，并用 `setting-group update` 限定作用域，避免影响其他设置分组 |
 
+### 3.8 versionedDir apply 实际落地（2026-09-01）
+
+宿主 apply 已按 [ADR 0011](../adr/0011-versioned-dir-apply.md) 独立落地：
+
+- `tools/update-launcher/main.go` 构建根目录稳定 launcher，读取并约束 `active.json` 路径后转发参数。
+- `scripts/package-versioned.mjs` 把 `.release/win-unpacked` 组装为
+  `dist/cronkit-<version>-win-x64.zip`，并固定构建上游 `relkit-apply` 首次实现提交 `b255ad0`。
+- `src/core/update/apply.ts` 集中安装根推导、sidecar 参数与 session 解析，保持无 Electron 依赖。
+- `src/main/update.ts` 在二次空闲检查和用户确认后解包；PowerShell 等主进程退出，再启动 sidecar；
+  apply session 按契约写入稳定安装根的 `update_apply.json`。
+- 开机自启改为稳定 launcher 路径；首次单层安装与后续 `versions/<version>` 安装使用同一套根目录推导。
+- 设置页提供「安装并重启」，同时保留「打开所在目录」作为排障入口；没有新增样式词汇。
+
+验证结果：
+
+```text
+npx tsc --noEmit                         PASS
+npm test                                 PASS（76 tests）
+go build tools/update-launcher/main.go   PASS
+npm run dist                             PASS（versionedDir ZIP）
+relkit-apply 临时目录迁移集成测试         PASS
+```
+
+首次完整打包发现已有运行实例锁住旧 `dist/win-unpacked`，因此 electron-builder 中间产物固定写入
+已忽略的 `.release/`；最终 ZIP 仍写 `dist/`。这不是通过终止常驻实例规避，而是让构建与运行目录隔离。
+
 ## 4. 阶段四：冒烟验收
 
 来自 `sdk-cascade.md`「开箱后冒烟」与 `README.md` §3。
@@ -399,10 +424,12 @@ UI 一律复用既有体系（`setting-group` / `setting-row` / `state-dot` / `b
 - [ ] 公钥轮换流程写进 cronkit 文档（先双钥并存发一版，再删旧钥）
 - [ ] COS 后端真实 publish 一次并 `verify --deep`（需发布机凭据）
 
-## 5. relkit 侧改动清单（待 relkit 自行核对，本次不提交）
+## 5. relkit 侧改动清单（待 relkit 自行核对）
 
-工作区状态：全部为**未提交**改动。relkit 仓库同时存在他人未提交的 `relkit-serve` 管理面板改动，
-下表只列本次接入产生的部分。**阶段三未再改动 relkit**，下表即为最终清单。
+截至 2026-08-31 22:01，原本的未提交现场已由用户本人提交为
+`ef5cb23 wip: 保存 TS SDK 与 admin 面板交接现场（未经审阅）`。该提交同时包含
+`sdk/node/` 与不相干的 `relkit-serve` 管理面板改动；下表仍只描述 cronkit 接入产生的部分。
+核对对象已从工作区 diff 变为该 WIP 提交，必须按目录拆开审阅。本阶段没有对 relkit 执行任何 git 写操作。
 
 **新增目录 `sdk/node/`（26 个文件）**
 

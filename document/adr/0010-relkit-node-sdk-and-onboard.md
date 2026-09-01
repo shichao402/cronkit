@@ -2,7 +2,7 @@
 
 - 状态：accepted
 - 日期：2026-08-31
-- 执行进展：[relkit 接入计划](../roadmap/relkit-onboard-plan.md)（阶段一、二已完成）
+- 执行进展：[relkit 接入计划](../roadmap/relkit-onboard-plan.md)（阶段一至三已完成）
 
 ## 背景
 
@@ -87,3 +87,5 @@ cronkit 需要自动更新。上游 [relkit](https://cnb.cool/shichao402/relkit)
 - 要重写选路、selector 匹配、sequence 防回滚、源学习排序、Range 续传，工作量数倍于 sidecar 方案。
 - relkit 仓库多一个语言 SDK 需要长期与 Go / Dart 保持行为对齐，每次协议改动要同步三处。
 - 打包形态从「一层 dir」变成「versionedDir + 稳定 launcher」，首次改造有回归风险。
+
+versionedDir 的宿主实现与构建约束由 [ADR 0011](0011-versioned-dir-apply.md) 记录。

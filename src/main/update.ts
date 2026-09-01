@@ -5,15 +5,22 @@
  * 相关的部分——状态目录、通知、托盘菜单、IPC 广播。`rup-client` 只在主进程用，
  * 渲染进程通过 IPC 拿状态。
  *
- * 本文件**不含 apply**。`rup-client` 明确不提供 apply，Electron 换自身目录要处理
- * 文件占用、稳定 launcher 路径、单实例锁与开机自启注册，这些都不是协议内容。
- * 首版只做到「下载完成 + 校验通过 + 打开所在目录提示手动安装」，versionedDir
- * 改造单独一批（见 ADR 0010 与接入计划 §3.6）。
+ * apply 由宿主实现：本进程只负责确认、解包和启动等待脚本，真正的目录切换由
+ * `relkit-apply` 在本进程退出后执行，避免 Windows 文件锁造成半新半旧。
  */
 
-import { app, Notification, shell } from "electron";
-import { mkdirSync } from "node:fs";
+import { app, dialog, Notification, shell } from "electron";
+import { spawn } from "node:child_process";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
+import extractZip from "extract-zip";
 import {
   FileUpdateStateStore,
   RupUpdater,
@@ -23,6 +30,14 @@ import {
   type VersionNode,
 } from "rup-client";
 
+import {
+  buildApplyArgs,
+  parseApplySession,
+  resolveInstallDir,
+  UPDATE_APPLY_SIDECAR,
+  UPDATE_EXECUTABLE,
+  versionPayloadDir,
+} from "../core/update/apply";
 import {
   CURRENT_VERSION_LABEL,
   UPDATE_CHANNEL,
@@ -48,6 +63,8 @@ export type UpdateServiceOptions = {
   onChange: (status: UpdateStatus) => void;
   /** 是否有任务正在运行，决定能否提示安装。 */
   hasRunningTasks: () => boolean;
+  /** sidecar 启动后停止编排器并允许窗口关闭。 */
+  prepareToQuit: () => void;
   log?: (message: string) => void;
 };
 
@@ -69,6 +86,7 @@ export class UpdateService {
     // 开发态不检查更新：currentCode 取哨兵值后本就不会有结果，索性连网络都不碰。
     this.enabled = app.isPackaged;
     this.status = initialStatus(CURRENT_VERSION_LABEL, this.enabled);
+    this.restoreApplySession();
   }
 
   snapshot(): UpdateStatus {
@@ -220,11 +238,111 @@ export class UpdateService {
     return this.status;
   }
 
+  /** 解包已校验产物，并在当前进程退出后交给 relkit-apply 原子切换。 */
+  async applyDownloaded(): Promise<{ ok: boolean; canceled?: boolean; error?: string }> {
+    const blocked = installBlockedReason(this.status, this.options.hasRunningTasks());
+    if (blocked) {
+      return { ok: false, error: blocked };
+    }
+    const target = this.status.target;
+    const downloadedPath = this.status.downloadedPath;
+    if (!target || !downloadedPath) {
+      return { ok: false, error: "没有已下载的更新" };
+    }
+
+    const confirmation = await dialog.showMessageBox({
+      type: "question",
+      title: "安装更新",
+      message: `现在安装 ${target.version}？`,
+      detail: "应用会退出并自动重新打开。已完成的下载不会丢失。",
+      buttons: ["安装并重启", "取消"],
+      defaultId: 0,
+      cancelId: 1,
+      noLink: true,
+    });
+    if (confirmation.response !== 0) {
+      return { ok: false, canceled: true };
+    }
+    if (this.options.hasRunningTasks()) {
+      return { ok: false, error: "有任务正在运行，等它结束后再安装" };
+    }
+
+    this.patch({ phase: "applying", message: undefined });
+    const stagedRoot = path.join(this.stagingDir, `apply-${target.code}`);
+    try {
+      rmSync(stagedRoot, { recursive: true, force: true });
+      mkdirSync(stagedRoot, { recursive: true });
+      await extractZip(downloadedPath, { dir: stagedRoot });
+
+      const payloadDir = versionPayloadDir(stagedRoot, target.version);
+      const sidecar = path.join(stagedRoot, UPDATE_APPLY_SIDECAR);
+      const launcher = path.join(stagedRoot, UPDATE_EXECUTABLE);
+      const targetExecutable = path.join(payloadDir, UPDATE_EXECUTABLE);
+      for (const required of [sidecar, launcher, targetExecutable]) {
+        if (!existsSync(required)) {
+          throw new Error(`更新包结构不完整：缺少 ${path.relative(stagedRoot, required)}`);
+        }
+      }
+
+      const installDir = resolveInstallDir(process.execPath);
+      const sessionPath = path.join(installDir, "update_apply.json");
+      const logPath = path.join(this.options.dataDir, "logs", "update-apply.log");
+      const args = buildApplyArgs({
+        installDir,
+        stagedRoot,
+        targetVersion: target.version,
+        targetCode: target.code,
+        sessionPath,
+        logPath,
+      });
+      const requestPath = path.join(stagedRoot, "apply-request.json");
+      const now = new Date().toISOString();
+      writeFileSync(
+        sessionPath,
+        JSON.stringify({
+          state: "pending",
+          startedAt: now,
+          updatedAt: now,
+          installDir,
+          stagedRoot,
+          targetCode: target.code,
+          targetVersion: target.version,
+        }),
+        "utf8",
+      );
+      writeFileSync(requestPath, JSON.stringify({ sidecar, arguments: args }), "utf8");
+
+      const waitScript = app.isPackaged
+        ? path.join(process.resourcesPath, "scripts", "apply-update.ps1")
+        : path.join(app.getAppPath(), "scripts", "apply-update.ps1");
+      if (!existsSync(waitScript)) {
+        throw new Error("找不到更新等待脚本");
+      }
+      await spawnDetached("powershell", [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        waitScript,
+        "-WaitPid",
+        String(process.pid),
+        "-RequestPath",
+        requestPath,
+      ]);
+      this.log(`已启动 apply 等待进程：${target.version} -> ${installDir}`);
+      this.options.prepareToQuit();
+      app.quit();
+      return { ok: true };
+    } catch (error) {
+      const why = this.describe(error);
+      this.log(`启动更新安装失败：${why}`);
+      this.patch({ phase: "ready", message: why });
+      return { ok: false, error: why };
+    }
+  }
+
   /**
-   * 「安装」——首版只把用户带到文件所在目录。
-   *
-   * 真正的目录替换要等 versionedDir 改造。在那之前假装能自动安装反而更危险：
-   * 用户以为装好了，实际还在跑旧版。
+   * 保留“打开所在目录”作为排障入口；正常安装走 applyDownloaded。
    */
   async revealDownload(): Promise<{ ok: boolean; error?: string }> {
     const blocked = installBlockedReason(this.status, this.options.hasRunningTasks());
@@ -269,6 +387,46 @@ export class UpdateService {
       stateStore,
       log: (message) => this.log(message),
     });
+  }
+
+  private restoreApplySession(): void {
+    if (!app.isPackaged) {
+      return;
+    }
+    const sessionPath = path.join(resolveInstallDir(process.execPath), "update_apply.json");
+    if (!existsSync(sessionPath)) {
+      return;
+    }
+    try {
+      const session = parseApplySession(JSON.parse(readFileSync(sessionPath, "utf8")));
+      if (!session) {
+        this.log("忽略格式无效的 apply session");
+        return;
+      }
+      if (session.state === "succeeded") {
+        this.status = {
+          ...this.status,
+          phase: "current",
+          lastCheckedAt: session.updatedAt ?? new Date().toISOString(),
+        };
+        unlinkSync(sessionPath);
+        this.log(`更新安装完成：${session.targetVersion}`);
+      } else if (session.state === "failed") {
+        this.status = {
+          ...this.status,
+          phase: "failed",
+          message: `上次安装更新失败：${session.message || "未知错误"}`,
+        };
+      } else {
+        this.status = {
+          ...this.status,
+          phase: "failed",
+          message: "上次安装更新未完成，请查看更新日志后重试",
+        };
+      }
+    } catch (error) {
+      this.log(`读取 apply session 失败：${this.describe(error)}`);
+    }
   }
 
   private async runCheck(force: boolean): Promise<UpdateCheckResult> {
@@ -399,6 +557,21 @@ export class UpdateService {
   private describe(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
   }
+}
+
+function spawnDetached(command: string, args: string[]): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, {
+      detached: true,
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    child.once("error", reject);
+    child.once("spawn", () => {
+      child.unref();
+      resolve();
+    });
+  });
 }
 
 /**

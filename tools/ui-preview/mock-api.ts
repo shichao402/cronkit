@@ -288,6 +288,12 @@ function initialUpdateStatus(): UpdateStatus {
         phase: "ready",
         downloadedPath: "C:/Users/firoyang/AppData/Roaming/cronkit/update-staging/cronkit-0.2.0-x64.zip",
       };
+    case "update-applying":
+      return {
+        ...base,
+        phase: "applying",
+        downloadedPath: "C:/Users/firoyang/AppData/Roaming/cronkit/update-staging/cronkit-0.2.0-x64.zip",
+      };
     case "update-failed":
       return {
         phase: "failed",
@@ -492,6 +498,10 @@ export function installMockApi(): void {
         downloadedPath: undefined,
         skipped: true,
       }),
+    applyUpdate: async () => {
+      patchUpdate({ phase: "applying" });
+      return ok;
+    },
     revealUpdate: async () => ok,
     openUpdateManualUrl: async () => ok,
     onUpdateStatus: (handler) => {

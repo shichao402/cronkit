@@ -23,4 +23,5 @@ Architecture Decision Record。一条 ADR 只记**一个**决定：当时面对�
 | [0008](0008-toolset-checkout-resets-to-remote.md) | 工具集检出更新时以远端为准 | accepted |
 | [0009](0009-step-templates-and-auto-ids.md) | 可复用步骤模板 + id 由程序自动分配 | accepted |
 | [0010](0010-relkit-node-sdk-and-onboard.md) | 接入 relkit 自动更新：自研 Node SDK + 按 RUP 标准开箱 | accepted |
+| [0011](0011-versioned-dir-apply.md) | Windows 更新采用稳定 launcher + versionedDir | accepted |
 

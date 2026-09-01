@@ -5,6 +5,7 @@ import { ensureUserConfig } from "../core/bootstrap";
 import { Orchestrator } from "../core/orchestrator";
 import { defaultDataDir } from "../core/paths";
 import { installOrUpdateToolset, rememberToolsetSha } from "../core/toolset";
+import { resolveInstallDir, UPDATE_EXECUTABLE } from "../core/update/apply";
 import type { UpdateStatus } from "../core/update/status";
 import type { ResolvedTheme, Snapshot, ThemePref, TrayState } from "../shared/types";
 import { openPathReliable } from "./open-path";
@@ -219,7 +220,10 @@ function updateTrayItem(): Electron.MenuItemConstructorOptions | null {
   }
   // 标签跟着状态走：常驻托盘的程序，用户多半只看这一行就想知道要不要点。
   if (status.phase === "ready") {
-    return { label: "更新已就绪，打开所在目录", click: () => void updates?.revealDownload() };
+    return { label: "更新已就绪，安装并重启", click: () => void updates?.applyDownloaded() };
+  }
+  if (status.phase === "applying") {
+    return { label: "正在安装更新…", enabled: false };
   }
   if (status.phase === "downloading") {
     return { label: "正在下载更新…", enabled: false };
@@ -290,10 +294,13 @@ function setupTray(): void {
 
 function applyOpenAtLogin(enabled: boolean): void {
   orch.openAtLogin = enabled;
+  const executable = app.isPackaged
+    ? path.join(resolveInstallDir(process.execPath), UPDATE_EXECUTABLE)
+    : process.execPath;
   app.setLoginItemSettings({
     openAtLogin: enabled,
     enabled,
-    path: process.execPath,
+    path: executable,
     args: app.isPackaged ? ["--hidden"] : [app.getAppPath(), "--hidden"],
   });
 }
@@ -337,6 +344,11 @@ if (!gotLock) {
       onChange: (status) => pushUpdateStatus(status),
       // 换目录会打断正在跑的编排任务，所以安装时机必须让位给任务。
       hasRunningTasks: () => orch.snapshot().exitWarnsRunning === true,
+      prepareToQuit: () => {
+        quitting = true;
+        updates?.stop();
+        orch.stop();
+      },
       log: (message) => console.log(message),
     });
     setupTray();
@@ -423,6 +435,10 @@ if (!gotLock) {
     ipcMain.handle("checkForUpdate", () => updates?.check(true) ?? null);
     ipcMain.handle("downloadUpdate", () => updates?.download() ?? null);
     ipcMain.handle("skipUpdate", () => updates?.skip() ?? null);
+    ipcMain.handle(
+      "applyUpdate",
+      () => updates?.applyDownloaded() ?? { ok: false, error: "更新服务未启用" },
+    );
     ipcMain.handle(
       "revealUpdate",
       () => updates?.revealDownload() ?? { ok: false, error: "更新服务未启用" },

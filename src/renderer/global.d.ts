@@ -47,6 +47,7 @@ export type DesktopApi = {
   checkForUpdate: () => Promise<UpdateStatus | null>;
   downloadUpdate: () => Promise<UpdateStatus | null>;
   skipUpdate: () => Promise<UpdateStatus | null>;
+  applyUpdate: () => Promise<{ ok: boolean; canceled?: boolean; error?: string }>;
   revealUpdate: () => Promise<{ ok: boolean; error?: string }>;
   openUpdateManualUrl: () => Promise<{ ok: boolean; error?: string }>;
   onSnapshot: (handler: (snapshot: Snapshot) => void) => () => void;

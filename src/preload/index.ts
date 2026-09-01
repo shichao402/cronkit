@@ -45,6 +45,8 @@ const api = {
   checkForUpdate: (): Promise<UpdateStatus | null> => ipcRenderer.invoke("checkForUpdate"),
   downloadUpdate: (): Promise<UpdateStatus | null> => ipcRenderer.invoke("downloadUpdate"),
   skipUpdate: (): Promise<UpdateStatus | null> => ipcRenderer.invoke("skipUpdate"),
+  applyUpdate: (): Promise<{ ok: boolean; canceled?: boolean; error?: string }> =>
+    ipcRenderer.invoke("applyUpdate"),
   revealUpdate: (): Promise<{ ok: boolean; error?: string }> =>
     ipcRenderer.invoke("revealUpdate"),
   openUpdateManualUrl: (): Promise<{ ok: boolean; error?: string }> =>
