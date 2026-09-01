@@ -219,9 +219,10 @@ relkit verify                                      # signature ok / reachability
 
 与原计划的三处偏差，都是有意为之：
 
-`publishTo` 暂留 `local`，`cos` 后端已配好但未启用。理由：COS 凭据
-（`COS_SECRET_ID` / `COS_SECRET_KEY`）只应进发布机环境，本机演练不该碰生产桶。
-真正对外发版时改 `publishTo` 为 `["cos"]` 并在发布机注入凭据即可，配置无需再动。
+仓库里的 `publishTo` 暂留 `local`，`cos` 后端只作为生产配置模板。理由：本机只负责
+build + stage，不持签名私钥或 COS 凭据，也不直接执行生产 publish。真正对外发版先在
+`publish.firoyang.com` 的 `relkit-agent` 登记 `cronkit`，把生产 `relkit.json`
+放入产品 root 并在该副本启用 `publishTo: ["cos"]`；CI 只上传 staged 树并触发 agent。
 
 `relkit version set 0.1.0+1` 未单独执行：`relkit init` 生成的 `VERSION.json` 初值已是 `0.1.0+1`。
 
@@ -230,7 +231,7 @@ relkit verify                                      # signature ok / reachability
 
 签名私钥的注入方式：`signing.privateKeyEnv` 收的是 **base64 编码的 32 字节种子**，
 不是私钥文件内容。本机演练时从 `keys/cronkit-2026.private.pb` 里取 `seed` 字段（proto 字段 4）转 base64。
-发布机上应直接把该 base64 存进 CI secret。
+该 base64 只进入 `relkit-agent` 发布机的受限环境；CI 只保存 `RELKIT_AGENT_TOKEN`。
 
 ### 2.4 版本同步脚本已落地
 
@@ -422,7 +423,7 @@ relkit-apply 临时目录迁移集成测试         PASS
 - [ ] `product` 改错一个字 → 整份 index 被拒
 - [ ] 节流生效，`force: true` 可绕过（单测已覆盖边界，尚未在真实链路上验）
 - [ ] 公钥轮换流程写进 cronkit 文档（先双钥并存发一版，再删旧钥）
-- [ ] COS 后端真实 publish 一次并 `verify --deep`（需发布机凭据）
+- [ ] 经 `relkit-agent` 向 COS 真实 publish 一次并 `verify --deep`（发布机持签名与 COS 凭据）
 
 ## 5. relkit 侧改动清单（待 relkit 自行核对）
 

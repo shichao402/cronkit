@@ -52,8 +52,7 @@
   },
   "signing": {
     "keyId": "cronkit-2026",
-    "privateKeyEnv": "RELKIT_PRIVATE_KEY",
-    "privateKeyPath": null,
+    "privateKeyPath": ".relkit-keys/cronkit-2026.private.pb",
     "publicKeys": [
       {
         "keyId": "cronkit-2026",

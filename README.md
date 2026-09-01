@@ -31,7 +31,7 @@ npm run ui-preview
 npm test
 ```
 
-## 打包 exe
+## 打包
 
 ```bat
 cd /d D:\workspace\GitHub\AgentsHelpMe\_work\cronkit
@@ -39,8 +39,33 @@ npm install
 npm run dist
 ```
 
-产物：`dist\win-unpacked\WorkspaceOrchestrator.exe`
+产物：`dist\cronkit-<version>-win-x64.zip`。这是包含稳定 launcher、
+`relkit-apply.exe` 与 `versions/<version>/` 的 versionedDir 发布包；
+`.release\win-unpacked` 只是被忽略的构建中间目录，不能直接发布。
 
+## 发版
+
+项目已经完成 relkit 开箱。准备发版时必须先读当前版本的 `relkit agent-guide`，
+不要从开箱计划复制命令，也不要把本机 `publishTo: ["local"]` 改成 COS 后直接发布。
+
+生产拓扑固定为：
+
+```text
+开发机 / CI：build + relkit stage
+  → publish.firoyang.com / relkit-agent：持签名私钥与 COS 凭据并执行 publish
+  → raw.firoyang.com / COS：客户端匿名只读
+```
+
+新产品必须先用发布机本地的 `relkit-agent init ... -product <id>` 登记，并把生产
+`relkit.json` 与签名密钥放入对应产品 root；登记后需经明确批准重启 agent 才生效。
+`relkit-serve` 的 PUT 是遗留路径，cronkit 不注册 serve token。
+
+发布红线：
+
+- 版本唯一来源是 `VERSION.json`，改号只用 `relkit version ...`。
+- CI 只持 `RELKIT_AGENT_TOKEN`，不持签名私钥或 COS SecretKey。
+- 发布前依次完成 `stage`、`simulate --with-staged ... --from all` 与 dry-run。
+- 通过 agent 发布后再做 directory 更新与 `verify --deep`，禁止手工上传或编辑远端签名对象。
 
 ## CLI
 
