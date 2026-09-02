@@ -1,7 +1,7 @@
 # relkit 接入计划（路线 B：自研 Node SDK）
 
-- 状态：阶段一、阶段二、阶段三已完成；阶段四剩 5 项
-- 日期：2026-08-31
+- 状态：阶段一至三已完成；阶段四剩 4 项，另有发布路径收口 5 项（§4.1）
+- 日期：2026-09-01
 - 决策：[ADR 0010](../adr/0010-relkit-node-sdk-and-onboard.md)
 - 上游仓库：`D:/workspace/GitHub/relkit`（RUP v2，`SPEC.md` 为唯一契约）
 
@@ -423,7 +423,42 @@ relkit-apply 临时目录迁移集成测试         PASS
 - [ ] `product` 改错一个字 → 整份 index 被拒
 - [ ] 节流生效，`force: true` 可绕过（单测已覆盖边界，尚未在真实链路上验）
 - [ ] 公钥轮换流程写进 cronkit 文档（先双钥并存发一版，再删旧钥）
-- [ ] 经 `relkit-agent` 向 COS 真实 publish 一次并 `verify --deep`（发布机持签名与 COS 凭据）
+- [x] 经 `relkit-agent` 向 COS 真实 publish 一次并 `verify --deep`（发布机持签名与 COS 凭据）
+      —— 已完成，但**发布路径不合规**，见 §4.1
+
+### 4.1 首次发布与发布路径改造（2026-09-01）
+
+`0.1.0+1` 已经发布到 COS 并通过匿名 HEAD 校验，但那一次是手工完成的：产物在开发机
+`npm run dist` 打出，经 SSH 传到发布机，再以 root 读取 `/etc/relkit-agent/token` 后直连
+`127.0.0.1:8787` 调 `/v1/staged` 与 `/v1/publish`；中途因目录属主不对返回 500，又在发布机上
+`chown` 后重试。整个过程绕过了 CI、绕过了 nginx 公网入口，也没有任何构建记录。
+
+之所以做得成，有两个结构性原因，都不是"注意一点"能解决的：
+
+- Bearer token 与签名私钥在同一台机器上，发布机的 root 同时拥有两者。token 边界防的是
+  CI runner 被攻陷，防不了持有 root 的人。
+- RUP 签名证明的是密钥持有，不是产物出处。签名里没有 commit、没有流水线运行号，客户端
+  分辨不出手工发布与 CI 发布，事后也识别不出来。
+
+该版本予以保留（对应干净提交 `af7cc52`，且是首版、无历史包袱）。发布路径已按下列改动收口：
+
+| 改动 | 位置 | 解决的问题 |
+|---|---|---|
+| 发布流水线 | `.cnb.yml` | 此前 cronkit 根本没有 CI，手工发布是唯一可行路径 |
+| relkit 稀疏检出 | `scripts/ensure-relkit.mjs`、`scripts/relkit-pin.mjs` | `rup-client` 原本指向仓库外的兄弟检出，只有开发机能装依赖 |
+| 打包脚本跨平台化 | `scripts/package-versioned.mjs` | Go 显式 `GOOS=windows`；zip 改用 yazl，不再依赖 PowerShell / `zip(1)` |
+| 发布完整性规则 | 元仓库 `.cursor/rules/release-integrity.mdc` | 明确禁止 SSH 读 token、直连 agent、用本地产物发布 |
+
+`Compress-Archive` 写出的 zip 条目用反斜杠分隔（违反 APPNOTE 4.4.17.1），Windows 上侥幸能解开、
+Linux 上不能。改用 yazl 后本地与 CI 产出同构的包，已核对 90 个条目零反斜杠。
+
+仍未收口（按有效性排序，均需另立任务）：
+
+- [ ] agent 校验产物出处（CNB OIDC / 构建证明），使非 CI 产出的 staged 包被拒
+- [ ] 签名私钥移出发布机文件系统（KMS/HSM 或独立签名服务），使 root 可用不可窃且留外部审计
+- [ ] 发布 token 按产品签发 + 短时效，替换当前全产品共用的长期 Bearer
+- [ ] 发布审计落到发布机改不动的地方，并与 CI 运行记录对账告警
+- [ ] 收敛发布机 root 访问 —— 以上四项对 root 都只是提高成本，这条才是真正的边界
 
 ## 5. relkit 侧改动清单（待 relkit 自行核对）
 

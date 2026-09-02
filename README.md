@@ -12,6 +12,10 @@ npm install
 npm start
 ```
 
+`npm install` 的 preinstall 会把 relkit 按固定点稀疏检出到 `third_party/relkit` 并构建
+其中的 `rup-client`（自动更新用的 SDK），因此首次安装需要能访问 cnb.cool。已在固定点时
+秒退。抬固定点改 [`scripts/relkit-pin.mjs`](scripts/relkit-pin.mjs)，然后 `npm run ensure-relkit`。
+
 首次启动会在 `%APPDATA%\cronkit\config.yaml` 写入一份探测到的本机配置（v2）。若本机还有旧目录 `%APPDATA%\workspace-orchestrator`，会把配置、状态、日志和 toolset 迁过去。打开旧 v1 配置会在内存中迁移预览，**点保存**后才写成 v2。默认**不启用自动调度**，避免未经确认就 `svn update`。
 
 关闭窗口会缩到托盘。托盘右键可退出。
@@ -43,28 +47,42 @@ npm run dist
 `relkit-apply.exe` 与 `versions/<version>/` 的 versionedDir 发布包；
 `.release\win-unpacked` 只是被忽略的构建中间目录，不能直接发布。
 
+本地打包**只用于验证**，产物不要拿去发布（见下）。构建脚本是跨平台的：Go 一律以
+`GOOS=windows GOARCH=amd64` 交叉编译，zip 由 yazl 生成，所以 Linux 构建节点与开发机
+产出同一套结构。
+
 ## 发版
 
-项目已经完成 relkit 开箱。准备发版时必须先读当前版本的 `relkit agent-guide`，
-不要从开箱计划复制命令，也不要把本机 `publishTo: ["local"]` 改成 COS 后直接发布。
+发布只由 [`.cnb.yml`](.cnb.yml) 的流水线执行。改版本号、推 tag，其余交给 CI：
+
+```bat
+:: 1. 改版本号（唯一来源是 VERSION.json）
+relkit version bump build
+npm run sync-version
+git commit -am "chore(release): 0.1.0+2" && git push
+
+:: 2. 打渠道 tag 触发发布
+git tag beta/v0.1.0+2 && git push origin beta/v0.1.0+2
+```
+
+`beta/v*` 进 beta 渠道，`stable/v*` 进 stable。tag 里的版本必须与 `VERSION.json`
+完全一致，否则流水线在第一步就失败。
 
 生产拓扑固定为：
 
 ```text
-开发机 / CI：build + relkit stage
+CNB 流水线：build + relkit stage（只持 RELKIT_PUBLISH_TOKEN）
   → publish.firoyang.com / relkit-agent：持签名私钥与 COS 凭据并执行 publish
   → raw.firoyang.com / COS：客户端匿名只读
 ```
 
-新产品必须先用发布机本地的 `relkit-agent init ... -product <id>` 登记，并把生产
-`relkit.json` 与签名密钥放入对应产品 root；登记后需经明确批准重启 agent 才生效。
-`relkit-serve` 的 PUT 是遗留路径，cronkit 不注册 serve token。
-
 发布红线：
 
 - 版本唯一来源是 `VERSION.json`，改号只用 `relkit version ...`。
-- CI 只持 `RELKIT_AGENT_TOKEN`，不持签名私钥或 COS SecretKey。
-- 发布前依次完成 `stage`、`simulate --with-staged ... --from all` 与 dry-run。
+- CI 只持发布 agent 的 Bearer，不持签名私钥或 COS SecretKey。
+- **不要**从开发机发布：不 SSH 到发布机读 token，不直连 `127.0.0.1` 调 agent，
+  不用本地构建的产物走 `/v1/publish`。理由见元仓库的发布完整性规则。
+- 流水线跑不通时修流水线，不要绕过它补发这一次。
 - 通过 agent 发布后再做 directory 更新与 `verify --deep`，禁止手工上传或编辑远端签名对象。
 
 ## CLI

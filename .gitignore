@@ -1,5 +1,7 @@
 node_modules/
 dist/
+# relkit 上游稀疏检出，由 scripts/ensure-relkit.mjs 按固定点重建
+third_party/
 .release/
 build/update-tools/
 out/

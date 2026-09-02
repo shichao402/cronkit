@@ -13,14 +13,20 @@ import { execFileSync } from "node:child_process";
 import {
   copyFileSync,
   cpSync,
+  createWriteStream,
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+
+import yazl from "yazl";
+
+import { RELKIT_DIR } from "./relkit-pin.mjs";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const buildOutputDir = path.resolve(root, process.argv[2] ?? "dist");
@@ -40,25 +46,36 @@ const toolDir = path.join(root, "build", "update-tools");
 mkdirSync(toolDir, { recursive: true });
 const launcher = path.join(toolDir, "WorkspaceOrchestrator.exe");
 const sidecar = path.join(toolDir, "relkit-apply.exe");
-const goFlags = process.platform === "win32" ? ["-ldflags=-H=windowsgui"] : [];
 
-run("go", [
-  "build",
-  ...goFlags,
-  "-o",
-  launcher,
-  path.join(root, "tools", "update-launcher", "main.go"),
-]);
+// 目标平台写死为 Windows x64 而不是跟随宿主：CNB 官方构建节点只有 Linux Docker，
+// 开发机是 Windows，两边必须产出同一套二进制，否则 CI 会静默产出 Linux 可执行文件。
+const winEnv = { GOOS: "windows", GOARCH: "amd64", CGO_ENABLED: "0" };
 
-// 首次提供 versionedDir 的上游提交。固定 commit，避免构建结果随 relkit HEAD 漂移。
+// launcher 是 GUI 进程，windowsgui 子系统避免每次启动闪出控制台窗口。
 run(
   "go",
   [
-    "install",
-    "cnb.cool/shichao402/relkit/cmd/relkit-apply@b255ad090bde4134780202a9edc4fede8ec129fe",
+    "build",
+    "-trimpath",
+    "-ldflags=-H=windowsgui",
+    "-o",
+    launcher,
+    path.join(root, "tools", "update-launcher", "main.go"),
   ],
-  { GOBIN: toolDir },
+  { env: winEnv },
 );
+
+// sidecar 从固定点的 relkit 源码构建（scripts/relkit-pin.mjs），不走 `go install @commit`：
+// 同一份稀疏检出既提供 rup-client 也提供 relkit-apply，只有一个上游版本需要对齐，
+// 也不必让构建机拿到 cnb.cool 的 Go module 拉取凭据。
+const relkitDir = path.join(root, RELKIT_DIR);
+if (!existsSync(path.join(relkitDir, "cmd", "relkit-apply", "main.go"))) {
+  throw new Error(`缺少 ${RELKIT_DIR}；先运行 npm run ensure-relkit`);
+}
+run("go", ["build", "-trimpath", "-o", sidecar, "./cmd/relkit-apply"], {
+  cwd: relkitDir,
+  env: winEnv,
+});
 if (!existsSync(sidecar)) {
   throw new Error(`relkit-apply 构建完成但未出现在 ${sidecar}`);
 }
@@ -87,15 +104,44 @@ writeFileSync(
 mkdirSync(artifactOutputDir, { recursive: true });
 const artifact = path.join(artifactOutputDir, `cronkit-${version}-win-x64.zip`);
 rmSync(artifact, { force: true });
-run("powershell", [
-  "-NoProfile",
-  "-Command",
-  "Compress-Archive -Path (Join-Path $env:CRONKIT_BUNDLE '*') -DestinationPath $env:CRONKIT_ARTIFACT -CompressionLevel Optimal",
-], {
-  CRONKIT_BUNDLE: bundleDir,
-  CRONKIT_ARTIFACT: artifact,
-});
+await zipDirectory(bundleDir, artifact);
 console.log(`versionedDir artifact: ${artifact}`);
+
+/**
+ * 自己写 zip，而不是调 Compress-Archive 或 zip(1)。
+ *
+ * Windows PowerShell 的 Compress-Archive 会把条目名写成反斜杠分隔，违反 ZIP 规范
+ * （APPNOTE 4.4.17.1 要求正斜杠）；Linux 的 zip(1) 写正斜杠。两条命令产出的包结构不同，
+ * 而构建可能发生在任一平台上。统一由 yazl 生成，本地与 CI 才是同一个产物。
+ */
+function zipDirectory(sourceDir, target) {
+  const zip = new yazl.ZipFile();
+  for (const relative of walkFiles(sourceDir)) {
+    zip.addFile(path.join(sourceDir, relative), relative.split(path.sep).join("/"));
+  }
+  zip.end();
+  return new Promise((resolve, reject) => {
+    const output = createWriteStream(target);
+    output.on("close", resolve);
+    output.on("error", reject);
+    zip.outputStream.on("error", reject);
+    zip.outputStream.pipe(output);
+  });
+}
+
+/** 相对 sourceDir 的文件路径，目录不单独入包（解压方按需创建）。 */
+function walkFiles(sourceDir, prefix = "") {
+  const files = [];
+  for (const entry of readdirSync(path.join(sourceDir, prefix), { withFileTypes: true })) {
+    const relative = path.join(prefix, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...walkFiles(sourceDir, relative));
+    } else if (entry.isFile()) {
+      files.push(relative);
+    }
+  }
+  return files;
+}
 
 function versionCode(value) {
   const matched = /\+([0-9]+)$/.exec(value);
@@ -106,9 +152,9 @@ function versionCode(value) {
   return code;
 }
 
-function run(command, args, env = {}) {
+function run(command, args, { cwd = root, env = {} } = {}) {
   execFileSync(command, args, {
-    cwd: root,
+    cwd,
     env: { ...process.env, ...env },
     stdio: "inherit",
   });
