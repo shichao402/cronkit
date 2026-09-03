@@ -114,17 +114,19 @@ function runNpm(args, cwd) {
   run("npm", args, { cwd });
 }
 
-/** CNB 私有仓库在 CI 里靠 CNB_TOKEN 拉取；本地则依赖已配置的 git 凭据。 */
+/** GitHub 公开仓默认匿名拉；CI 有 GITHUB_TOKEN / GH_TOKEN 时注入，避免限流。 */
 function authenticatedUrl(url) {
-  const token = (process.env.CNB_TOKEN || "").trim();
-  const prefix = "https://cnb.cool/";
-  if (!token || !url.startsWith(prefix)) {
-    return url;
+  const github = "https://github.com/";
+  const githubToken = (process.env.GITHUB_TOKEN || process.env.GH_TOKEN || "").trim();
+  if (githubToken && url.startsWith(github) && !url.slice(github.length).includes("@")) {
+    return `https://x-access-token:${githubToken}@github.com/${url.slice(github.length)}`;
   }
-  if (url.slice(prefix.length).includes("@")) {
-    return url;
+  const cnbToken = (process.env.CNB_TOKEN || "").trim();
+  const cnb = "https://cnb.cool/";
+  if (cnbToken && url.startsWith(cnb) && !url.slice(cnb.length).includes("@")) {
+    return `https://cnb:${cnbToken}@cnb.cool/${url.slice(cnb.length)}`;
   }
-  return `https://cnb:${token}@cnb.cool/${url.slice(prefix.length)}`;
+  return url;
 }
 
 function assertFile(file, what) {
