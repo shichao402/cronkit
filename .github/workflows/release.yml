@@ -48,6 +48,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.3"
+          # No go.sum in this repo; the default cache lookup only annotates.
+          cache: false
 
       - name: Resolve version and channel
         id: meta

@@ -27,6 +27,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.3"
+          # Go is only here to build the relkit CLI from its own checkout.
+          # This repo has no go.sum, so the default cache lookup only ever
+          # produces a red "dependencies file is not found" annotation.
+          cache: false
 
       - name: Relkit SDK + deps
         shell: bash
