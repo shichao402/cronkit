@@ -38,8 +38,6 @@ const dest = path.join(root, RELKIT_DIR);
 const skipSdk = process.argv.includes("--skip-sdk");
 const force = process.argv.includes("--force");
 
-main();
-
 function main() {
   // 它挂在 preinstall 上，每次 npm install 都会跑。已经在固定点时不该再联网。
   if (!force && isUpToDate()) {
@@ -96,15 +94,24 @@ function syncCheckout() {
   console.log(`ensure-relkit: relkit HEAD = ${head}（固定点 ${RELKIT_REF}）`);
 }
 
-// Windows 上 npm 是 .cmd 包装，execFile 不经 shell 时必须写全名。
-const NPM = process.platform === "win32" ? "npm.cmd" : "npm";
+main();
 
 function buildSdk() {
   const sdkDir = path.join(dest, "sdk", "node");
-  run(NPM, ["ci"], { cwd: sdkDir });
-  run(NPM, ["run", "build"], { cwd: sdkDir });
+  runNpm(["ci"], sdkDir);
+  runNpm(["run", "build"], sdkDir);
   assertFile(path.join(sdkDir, "dist", "src", "index.js"), "SDK 构建产物");
   console.log(`ensure-relkit: rup-client 就绪于 ${path.relative(root, sdkDir)}`);
+}
+
+function runNpm(args, cwd) {
+  // npm on Windows is a .cmd shim. Node 26 rejects spawning it directly with
+  // EINVAL, so run the fixed command through cmd.exe.
+  if (process.platform === "win32") {
+    run(process.env.ComSpec || "cmd.exe", ["/d", "/s", "/c", "npm.cmd", ...args], { cwd });
+    return;
+  }
+  run("npm", args, { cwd });
 }
 
 /** CNB 私有仓库在 CI 里靠 CNB_TOKEN 拉取；本地则依赖已配置的 git 凭据。 */

@@ -71,7 +71,7 @@ git tag beta/v0.1.0+2 && git push origin beta/v0.1.0+2
 生产拓扑固定为：
 
 ```text
-CNB 流水线：build + relkit stage（只持 RELKIT_PUBLISH_TOKEN）
+CNB 流水线：build + relkit stage（只持 cronkit 专属 RELKIT_UPLOAD_TOKEN）
   → publish.firoyang.com / relkit-agent：持签名私钥与 COS 凭据并执行 publish
   → raw.firoyang.com / COS：客户端匿名只读
 ```

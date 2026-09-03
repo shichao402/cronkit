@@ -7,13 +7,9 @@
 # 两者不一致时流水线直接失败，避免 tag 与产物里的版本各说各话。
 #
 # 密钥来自 shichao402/keystores 的 relkit_release.env.yml：
-#   RELKIT_PUBLISH_TOKEN  发布 agent 的 Bearer。CI 只有它，没有签名私钥 —— 私钥在发布机上
+#   RELKIT_UPLOAD_TOKEN   cronkit 专属的 agent Bearer。CI 只有它，没有签名私钥 —— 私钥在发布机上
 #                         按产品分文件存放，任何构建节点都不该能读到。
-#   RELKIT_PUBLISH_URL    默认 https://publish.firoyang.com（走 nginx 公网入口，不走 127.0.0.1）
-#
-# 已知缺口：该 token 目前是所有产品共用的一把长期 Bearer，拿到它就能发布任意产品；agent
-# 也不校验产物出处，所以它拦不住"拿着 token 从别处上传"。收敛方向是按产品签发 + 短时效 +
-# 出处校验，见元仓库 .cursor/rules/release-integrity.mdc。
+#   RELKIT_AGENT_URL      默认 https://publish.firoyang.com/v1（走 nginx 公网入口，不走 127.0.0.1）
 #
 # 构建节点：CNB 官方节点只有 Linux Docker，Windows 产物靠 electron-builder + wine 交叉构建。
 # 若以后接入自托管 Windows runner，把 docker 段换成 runner.{namespace,tags} 即可，
@@ -107,11 +103,16 @@
         set -euo pipefail
         VERSION=$(cat .release-version)
         CHANNEL=$(cat .release-channel)
-        if [ -z "${RELKIT_PUBLISH_TOKEN:-}" ]; then
-          echo "RELKIT_PUBLISH_TOKEN 未配置，无法发布"
+        if [ -z "${RELKIT_UPLOAD_TOKEN:-}" ]; then
+          echo "RELKIT_UPLOAD_TOKEN 未配置，无法发布"
           exit 1
         fi
-        PUBLISH_URL="${RELKIT_PUBLISH_URL:-https://publish.firoyang.com}"
+        AGENT_URL="${RELKIT_AGENT_URL:-https://publish.firoyang.com/v1}"
+        AGENT_URL="${AGENT_URL%/}"
+        case "$AGENT_URL" in
+          */v1) ;;
+          *) AGENT_URL="${AGENT_URL}/v1" ;;
+        esac
 
         tar -C ".relkit/staged/${VERSION}" -czf staged.tar.gz .
         SHA=$(sha256sum staged.tar.gz | awk '{print $1}')
@@ -119,17 +120,31 @@
         # 版本号含 `+`，在 URL path 段里必须转义，否则被解成空格。
         VER_PATH=$(printf '%s' "$VERSION" | sed 's/+/%2B/g')
 
-        curl -fsS -X PUT \
-          -H "Authorization: Bearer ${RELKIT_PUBLISH_TOKEN}" \
-          --data-binary @staged.tar.gz \
-          "${PUBLISH_URL}/v1/staged/cronkit/${VER_PATH}"
+        agent_curl() {
+          local method="$1" url="$2"
+          shift 2
+          local body code
+          body="$(mktemp)"
+          code="$(curl -sS -o "$body" -w "%{http_code}" -X "$method" \
+            -H "Authorization: Bearer ${RELKIT_UPLOAD_TOKEN}" \
+            "$@" \
+            "$url")"
+          if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+            echo "agent ${method} ${url} HTTP ${code}: $(head -c 800 "$body")"
+            rm -f "$body"
+            return 1
+          fi
+          cat "$body"
+          rm -f "$body"
+        }
+
+        agent_curl PUT "${AGENT_URL}/staged/cronkit/${VER_PATH}" \
+          --data-binary @staged.tar.gz
 
         # 签名与上传 COS 都发生在发布机上，CI 只是把 staged 交过去并请求提交。
-        curl -fsS -X POST \
-          -H "Authorization: Bearer ${RELKIT_PUBLISH_TOKEN}" \
+        agent_curl POST "${AGENT_URL}/publish" \
           -H "Content-Type: application/json" \
-          -d "{\"product\":\"cronkit\",\"version\":\"${VERSION}\",\"stagedSha256\":\"${SHA}\",\"idempotencyKey\":\"cronkit/${CHANNEL}/${VERSION}/${SHA}\"}" \
-          "${PUBLISH_URL}/v1/publish"
+          -d "{\"product\":\"cronkit\",\"version\":\"${VERSION}\",\"stagedSha256\":\"${SHA}\",\"idempotencyKey\":\"cronkit/${CHANNEL}/${VERSION}/${SHA}\"}"
 
         echo "published cronkit ${VERSION} → ${CHANNEL}"
 
