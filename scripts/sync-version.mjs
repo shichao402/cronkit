@@ -29,6 +29,10 @@ function readJson(path) {
   }
 }
 
+function normalizeEol(text) {
+  return text.replace(/\r\n/g, "\n");
+}
+
 const versionPath = join(root, "VERSION.json");
 if (!existsSync(versionPath)) {
   fail("VERSION.json missing; run `relkit init --product cronkit` first");
@@ -69,8 +73,12 @@ export const APP_VERSION_CODE = ${code};
 `;
 
 const pkgNeedsWrite = pkg.version !== semver;
+// The worktree copy is CRLF wherever core.autocrlf is on (every Windows CI
+// runner), while this script always writes LF. Compare on content alone, or
+// --check fails on a tree that is perfectly in sync.
 const generatedNeedsWrite =
-  !existsSync(generatedPath) || readFileSync(generatedPath, "utf8") !== generated;
+  !existsSync(generatedPath) ||
+  normalizeEol(readFileSync(generatedPath, "utf8")) !== normalizeEol(generated);
 
 if (checkOnly) {
   if (pkgNeedsWrite || generatedNeedsWrite) {
