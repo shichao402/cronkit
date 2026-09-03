@@ -444,7 +444,7 @@ relkit-apply 临时目录迁移集成测试         PASS
 
 | 改动 | 位置 | 解决的问题 |
 |---|---|---|
-| 发布流水线 | `.cnb.yml` | 此前 cronkit 根本没有 CI，手工发布是唯一可行路径 |
+| 发布流水线 | `.github/workflows/release.yml` | 已从 CNB 迁到 GitHub Actions；CI 只持产品级 `RELKIT_UPLOAD_TOKEN` |
 | relkit 稀疏检出 | `scripts/ensure-relkit.mjs`、`scripts/relkit-pin.mjs` | `rup-client` 原本指向仓库外的兄弟检出，只有开发机能装依赖 |
 | 打包脚本跨平台化 | `scripts/package-versioned.mjs` | Go 显式 `GOOS=windows`；zip 改用 yazl，不再依赖 PowerShell / `zip(1)` |
 | 发布完整性规则 | 元仓库 `.cursor/rules/release-integrity.mdc` | 明确禁止 SSH 读 token、直连 agent、用本地产物发布 |

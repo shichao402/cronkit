@@ -13,7 +13,7 @@ npm start
 ```
 
 `npm install` 的 preinstall 会把 relkit 按固定点稀疏检出到 `third_party/relkit` 并构建
-其中的 `rup-client`（自动更新用的 SDK），因此首次安装需要能访问 cnb.cool。已在固定点时
+其中的 `rup-client`（自动更新用的 SDK），因此首次安装需要能访问 GitHub。已在固定点时
 秒退。抬固定点改 [`scripts/relkit-pin.mjs`](scripts/relkit-pin.mjs)，然后 `npm run ensure-relkit`。
 
 首次启动会在 `%APPDATA%\cronkit\config.yaml` 写入一份探测到的本机配置（v2）。若本机还有旧目录 `%APPDATA%\workspace-orchestrator`，会把配置、状态、日志和 toolset 迁过去。打开旧 v1 配置会在内存中迁移预览，**点保存**后才写成 v2。默认**不启用自动调度**，避免未经确认就 `svn update`。
@@ -53,7 +53,8 @@ npm run dist
 
 ## 发版
 
-发布只由 [`.cnb.yml`](.cnb.yml) 的流水线执行。改版本号、推 tag，其余交给 CI：
+发布只由 GitHub Actions（[`.github/workflows/release.yml`](.github/workflows/release.yml)）执行。
+改版本号、推 tag，其余交给 CI：
 
 ```bat
 :: 1. 改版本号（唯一来源是 VERSION.json）
@@ -71,7 +72,7 @@ git tag beta/v0.1.0+2 && git push origin beta/v0.1.0+2
 生产拓扑固定为：
 
 ```text
-CNB 流水线：build + relkit stage（只持 cronkit 专属 RELKIT_UPLOAD_TOKEN）
+GitHub Actions：build + relkit stage（只持 cronkit 专属 RELKIT_UPLOAD_TOKEN）
   → publish.firoyang.com / relkit-agent：持签名私钥与 COS 凭据并执行 publish
   → raw.firoyang.com / COS：客户端匿名只读
 ```

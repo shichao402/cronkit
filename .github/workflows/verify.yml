@@ -1,0 +1,51 @@
+# 主干持续验证。不持发布密钥。
+# Windows 原生打 --win --dir，避免再依赖 CNB 的 wine 镜像。
+
+name: Verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: verify-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.3"
+
+      - name: Relkit SDK + deps
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/ensure-relkit.mjs
+          npm ci
+
+      - name: Checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run check-version
+          npx tsc --noEmit
+          npm test
+
+      - name: Dist
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run dist
+          ls -l dist/
