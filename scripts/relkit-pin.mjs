@@ -5,5 +5,5 @@
 // 替换目录，回归的代价是用户装不上新版本。
 export const RELKIT_URL = process.env.RELKIT_URL || "https://github.com/shichao402/relkit.git";
 export const RELKIT_REF =
-  process.env.RELKIT_REF || "f39d82009d5e2fcd90227d1bf8f90e37ae74d090";
+  process.env.RELKIT_REF || "fd4676ae0e7498a7b61bd20eca1034b7d8b3a42d";
 export const RELKIT_DIR = "third_party/relkit";

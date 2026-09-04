@@ -121,6 +121,8 @@ jobs:
         env:
           VERSION: ${{ steps.meta.outputs.version }}
           CHANNEL: ${{ steps.meta.outputs.channel }}
+          RELKIT_UPLOAD_PART_SIZE: ${{ vars.RELKIT_UPLOAD_PART_SIZE }}
+          RELKIT_UPLOAD_CONCURRENCY: ${{ vars.RELKIT_UPLOAD_CONCURRENCY }}
         run: |
           set -euo pipefail
           if [ -z "${RELKIT_UPLOAD_TOKEN:-}" ]; then
@@ -151,7 +153,10 @@ jobs:
 
           tar -C ".relkit/staged/${VERSION}" -czf staged.tar.gz .
           SHA=$(sha256sum staged.tar.gz | awk '{print $1}')
-          VER_PATH=$(printf '%s' "$VERSION" | sed 's/+/%2B/g')
+          "$CLI" staged-put staged.tar.gz \
+            --product cronkit \
+            --version "$VERSION" \
+            --url "$AGENT_URL"
 
           agent_curl() {
             local method="$1" url="$2"
@@ -171,8 +176,6 @@ jobs:
             rm -f "$body"
           }
 
-          agent_curl PUT "${AGENT_URL}/staged/cronkit/${VER_PATH}" \
-            --data-binary @staged.tar.gz
           agent_curl POST "${AGENT_URL}/publish" \
             -H "Content-Type: application/json" \
             -d "{\"product\":\"cronkit\",\"version\":\"${VERSION}\",\"stagedSha256\":\"${SHA}\",\"idempotencyKey\":\"cronkit/${CHANNEL}/${VERSION}/${SHA}\"}"
