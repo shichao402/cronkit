@@ -7,6 +7,8 @@
  *     relkit-apply.exe           (固定到已审提交的 sidecar)
  *     active.json
  *     versions/<version>/...     (Electron 应用)
+ *   dist/cronkit-<version>-win-x64-setup.exe
+ *     同上树的 NSIS 首次安装包（selectors 带 audience=user）
  */
 
 import { execFileSync } from "node:child_process";
@@ -106,6 +108,85 @@ const artifact = path.join(artifactOutputDir, `cronkit-${version}-win-x64.zip`);
 rmSync(artifact, { force: true });
 await zipDirectory(bundleDir, artifact);
 console.log(`versionedDir artifact: ${artifact}`);
+
+const setup = path.join(artifactOutputDir, `cronkit-${version}-win-x64-setup.exe`);
+buildNsisInstaller({ version, bundleDir, setup });
+console.log(`nsis installer: ${setup}`);
+
+/**
+ * 用本机 makensis 把 versionedDir 打成首次安装用的 setup.exe。
+ * 安装树与 zip 同源，因此装完后仍可走 relkit-apply。
+ */
+function buildNsisInstaller({ version, bundleDir, setup }) {
+  const makensis = findMakensis();
+  if (!makensis) {
+    if (process.platform === "win32") {
+      throw new Error(
+        "找不到 makensis。请安装 NSIS 3（https://nsis.sourceforge.io/）并确保 makensis 在 PATH，或设置 MAKENSIS。",
+      );
+    }
+    console.warn("跳过 NSIS：非 Windows 宿主且未设置 MAKENSIS");
+    return;
+  }
+
+  const script = path.join(root, "build", "installer.nsi");
+  if (!existsSync(script)) {
+    throw new Error(`缺少 ${script}`);
+  }
+
+  const versionFour = toNsisProductVersion(version);
+  const iconFile = path.join(root, "build", "icon.ico");
+  rmSync(setup, { force: true });
+
+  const defines = [
+    `VERSION=${version}`,
+    `VERSION_FOUR=${versionFour}`,
+    `SRCDIR=${bundleDir}`,
+    `OUTFILE=${setup}`,
+  ];
+  if (existsSync(iconFile)) {
+    defines.push(`ICONFILE=${iconFile}`);
+  }
+
+  // NSIS 的 /D 不吃引号；路径含空格时改用短路径会更稳，但当前产物目录无空格。
+  run(makensis, [...defines.map((item) => `/D${item}`), script]);
+  if (!existsSync(setup)) {
+    throw new Error(`makensis 完成但未产出 ${setup}`);
+  }
+}
+
+/** `0.1.0+2` → `0.1.0.2`，供 VIProductVersion（必须四段数字）。 */
+function toNsisProductVersion(value) {
+  const matched = /^(\d+)\.(\d+)\.(\d+)\+(\d+)$/.exec(value);
+  if (!matched) {
+    throw new Error(`版本号无法转成 NSIS VIProductVersion：${value}`);
+  }
+  return `${matched[1]}.${matched[2]}.${matched[3]}.${matched[4]}`;
+}
+
+function findMakensis() {
+  const candidates = [
+    process.env.MAKENSIS,
+    "makensis",
+    "makensis.exe",
+    "C:\\Program Files (x86)\\NSIS\\makensis.exe",
+    "C:\\Program Files\\NSIS\\makensis.exe",
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    try {
+      if (candidate.includes("\\") || candidate.includes("/")) {
+        if (existsSync(candidate)) return candidate;
+        continue;
+      }
+      execFileSync(candidate, ["/VERSION"], { stdio: "pipe" });
+      return candidate;
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
 
 /**
  * 自己写 zip，而不是调 Compress-Archive 或 zip(1)。

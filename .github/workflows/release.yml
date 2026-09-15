@@ -109,6 +109,9 @@ jobs:
           npx tsc --noEmit
           npm test
 
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+
       - name: Dist
         shell: bash
         run: |
@@ -136,13 +139,22 @@ jobs:
             CLI=./relkit-cli.exe
           fi
           ZIP="dist/cronkit-${VERSION}-win-x64.zip"
+          SETUP="dist/cronkit-${VERSION}-win-x64-setup.exe"
           if [ ! -f "$ZIP" ]; then
             echo "缺少产物 $ZIP"
             ls -l dist/ || true
             exit 1
           fi
+          if [ ! -f "$SETUP" ]; then
+            echo "缺少产物 $SETUP"
+            ls -l dist/ || true
+            exit 1
+          fi
+          # zip: auto-update client (os+arch, matches UPDATE_CLIENT_SELECTORS)
+          # setup: first-time install page (extra audience=user so old clients skip it)
           "$CLI" stage "$VERSION" --channel "$CHANNEL" \
-            --add "$ZIP" os=windows,arch=x64
+            --add "$ZIP" os=windows,arch=x64 \
+            --add "$SETUP" os=windows,arch=x64,audience=user
 
           AGENT_URL="${RELKIT_AGENT_URL:-https://publish.firoyang.com/v1}"
           AGENT_URL="${AGENT_URL%/}"

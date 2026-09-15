@@ -7,7 +7,7 @@ Windows 托盘程序：按 YAML 调度 SVN 更新、Unity 预热和本地脚本�
 ## 启动
 
 ```bat
-cd /d D:\workspace\GitHub\AgentsHelpMe\_work\cronkit
+cd /d D:\workspace\GitHub\cronkit
 npm install
 npm start
 ```
@@ -38,18 +38,23 @@ npm test
 ## 打包
 
 ```bat
-cd /d D:\workspace\GitHub\AgentsHelpMe\_work\cronkit
+cd /d D:\workspace\GitHub\cronkit
 npm install
 npm run dist
 ```
 
-产物：`dist\cronkit-<version>-win-x64.zip`。这是包含稳定 launcher、
-`relkit-apply.exe` 与 `versions/<version>/` 的 versionedDir 发布包；
-`.release\win-unpacked` 只是被忽略的构建中间目录，不能直接发布。
+产物：
 
-本地打包**只用于验证**，产物不要拿去发布（见下）。构建脚本是跨平台的：Go 一律以
-`GOOS=windows GOARCH=amd64` 交叉编译，zip 由 yazl 生成，所以 Linux 构建节点与开发机
-产出同一套结构。
+- `dist\cronkit-<version>-win-x64.zip`：versionedDir 发布包（稳定 launcher、
+  `relkit-apply.exe`、`active.json`、`versions/<version>/`），供自动更新。
+- `dist\cronkit-<version>-win-x64-setup.exe`：NSIS 首次安装包，安装树与 zip 同源。
+
+`.release\win-unpacked` 只是被忽略的构建中间目录，不能直接发布。
+本地需要已安装 [NSIS 3](https://nsis.sourceforge.io/)（`makensis` 在 PATH，或设 `MAKENSIS`）。
+
+本地打包**只用于验证**，产物不要拿去发布（见下）。Go launcher / sidecar 一律以
+`GOOS=windows GOARCH=amd64` 交叉编译，zip 由 yazl 生成，因此非 Windows 宿主也能打出
+与 CI 同构的 zip；**NSIS setup.exe 只在 Windows（本机或 `windows-latest` CI）生成**。
 
 ## 发版
 
