@@ -48,6 +48,9 @@ jobs:
           npx tsc --noEmit
           npm test
 
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+
       - name: Dist
         shell: bash
         run: |
