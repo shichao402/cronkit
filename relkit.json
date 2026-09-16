@@ -70,6 +70,10 @@
   "site": {
     "title": "cronkit",
     "description": "Windows workspace scheduler with tray: SVN update, Unity warmup, scripts.",
-    "homepage": "https://update.firoyang.com/"
+    "homepage": "https://github.com/shichao402/cronkit",
+    "makers": {
+      "projectId": "makers-9qaqgz7dfhz8",
+      "tokenEnv": "EDGEONE_PAGES_API_TOKEN"
+    }
   }
 }

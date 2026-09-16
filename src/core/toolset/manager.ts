@@ -10,7 +10,8 @@ import { getBuiltinTool, listBuiltinTools } from "./builtin";
 export type ToolsetSource = {
   id: string;
   displayName: string;
-  repo: string;
+  /** 公开仓不内置内网默认地址；本机在设置里填 toolsetRepos。 */
+  repo?: string;
   branch?: string;
 };
 
@@ -18,7 +19,6 @@ export const KNOWN_TOOLSETS: ToolsetSource[] = [
   {
     id: "osg",
     displayName: "OSGToolset",
-    repo: "https://git.woa.com/firoyang/OSGToolset.git",
     branch: "main",
   },
 ];
@@ -133,7 +133,10 @@ export async function installOrUpdateToolset(
   if (!source) {
     throw new Error(`未知 toolset: ${id}`);
   }
-  const repo = repoOverride?.trim() || source.repo;
+  const repo = repoOverride?.trim() || source.repo?.trim();
+  if (!repo) {
+    throw new Error("未配置 OSGToolset 仓库地址，请在设置里填写 toolsetRepos.osg");
+  }
   const root = toolsetDir(id, dataDir);
   mkdirSync(toolsetsRoot(dataDir), { recursive: true });
   const log =

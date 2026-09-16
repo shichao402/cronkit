@@ -75,7 +75,7 @@ const snapshot: Snapshot = {
       id: "osg",
       displayName: "OSGToolset",
       root: "C:/Users/firoyang/AppData/Roaming/cronkit/toolsets/osg",
-      repo: "https://git.woa.com/firoyang/OSGToolset.git",
+      repo: "",
       schemaVersion: 1,
       sha: "8424b9b",
       installed: true,
