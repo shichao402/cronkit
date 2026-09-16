@@ -1,5 +1,8 @@
 {
   "product": "cronkit",
+  "agent": {
+    "url": "https://publish.firoyang.com/v1/"
+  },
   "defaultChannel": "stable",
   "channels": [
     "stable",
@@ -7,11 +10,6 @@
   ],
   "codeStrategy": "version-build",
   "backends": {
-    "local": {
-      "type": "local",
-      "baseUrl": "https://raw.firoyang.com/rup/",
-      "outputDir": "dist/publish"
-    },
     "cos": {
       "type": "s3-compatible",
       "endpoint": "https://cos.ap-guangzhou.myqcloud.com",
@@ -24,11 +22,11 @@
     }
   },
   "publishTo": [
-    "local"
+    "cos"
   ],
   "directory": {
     "publishTo": [
-      "local"
+      "cos"
     ],
     "entryUrls": [
       "https://raw.firoyang.com/rup/directory/cronkit.pb"
@@ -52,7 +50,6 @@
   },
   "signing": {
     "keyId": "cronkit-2026",
-    "privateKeyPath": ".relkit-keys/cronkit-2026.private.pb",
     "publicKeys": [
       {
         "keyId": "cronkit-2026",
@@ -63,6 +60,6 @@
   "site": {
     "title": "cronkit",
     "description": "Windows workspace scheduler with tray: SVN update, Unity warmup, scripts.",
-    "homepage": ""
+    "homepage": "https://update.firoyang.com/"
   }
 }

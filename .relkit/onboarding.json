@@ -1,0 +1,105 @@
+{
+  "schema": "relkit.onboarding/1",
+  "product": "cronkit",
+  "steps": {
+    "repo.root": {
+      "status": "verified",
+      "value": ".",
+      "note": "node"
+    },
+    "env.inspect": {
+      "status": "verified",
+      "value": "clean",
+      "note": "no error findings"
+    },
+    "product.id": {
+      "status": "verified",
+      "value": "cronkit",
+      "note": ""
+    },
+    "updater.process": {
+      "status": "confirmed",
+      "value": "node",
+      "note": ""
+    },
+    "channel.ssot": {
+      "status": "confirmed",
+      "value": "VERSION.json",
+      "note": ""
+    },
+    "backend.kind": {
+      "status": "confirmed",
+      "value": "s3-compatible",
+      "note": ""
+    },
+    "ssh.host": {
+      "status": "verified",
+      "value": "cvm-gz",
+      "note": "cvm-gz:22 (ssh default) relkit-serve 0.3.25+0ae4aa49c4c2"
+    },
+    "ssh.config_dir": {
+      "status": "verified",
+      "value": "/etc/relkit-serve",
+      "note": "unit answered here"
+    },
+    "token.isolation": {
+      "status": "verified",
+      "value": "exclusive",
+      "note": ""
+    },
+    "serve.register": {
+      "status": "verified",
+      "value": "cronkit",
+      "note": "listed on remote"
+    },
+    "agent.register": {
+      "status": "verified",
+      "value": "cronkit",
+      "note": "listed on remote"
+    },
+    "signing.keys": {
+      "status": "verified",
+      "value": "cronkit-2026",
+      "note": "publish profile on agent host"
+    },
+    "consume.lock": {
+      "status": "verified",
+      "value": "v0.3.25",
+      "note": "lock present"
+    },
+    "sidecar.layout": {
+      "status": "verified",
+      "value": "tools/bin",
+      "note": "lock-pinned updater present: D:/workspace/GitHub/cronkit/tools/bin/relkit-updater.exe"
+    },
+    "fake.release": {
+      "status": "verified",
+      "value": "0.1.0+2",
+      "note": "stage+simulate verified; publish remains CI-only"
+    },
+    "pack.ci": {
+      "status": "unanswered",
+      "value": null,
+      "note": ""
+    },
+    "ops.retrospect": {
+      "status": "unanswered",
+      "value": null,
+      "note": ""
+    }
+  },
+  "serve": {
+    "sshHost": "cvm-gz",
+    "sshPort": null,
+    "configDir": "/etc/relkit-serve",
+    "shareWith": null,
+    "remoteVersion": "relkit-serve 0.3.25+0ae4aa49c4c2"
+  },
+  "agent": {
+    "sshHost": null,
+    "sshPort": null,
+    "configPath": "/etc/relkit-agent/relkit-agent.json",
+    "remoteVersion": "relkit-agent 0.3.25+0ae4aa49c4c2"
+  },
+  "root": "D:\\workspace\\GitHub\\cronkit"
+}

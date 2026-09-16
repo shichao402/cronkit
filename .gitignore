@@ -13,7 +13,20 @@ fixtures/svn-repo/
 fixtures/wc/
 fixtures/tools-wc/
 
+# Dec secrets sync root
+/.secrets/
+
 # relkit / RUP：签名私钥与本地发布暂存，绝不入库
 keys/
 *.private.pb
-.relkit/
+.relkit/*
+!.relkit/onboarding.json
+.relkit/cache/
+.relkit-keys/*.private.pb
+__pycache__/
+
+# relkit.consume/2 按 lock 装进来的二进制，随时可由 relkit_host.py install 重建
+tools/bin/relkit
+tools/bin/relkit.exe
+tools/bin/relkit-updater
+tools/bin/relkit-updater.exe
