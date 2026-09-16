@@ -1,10 +1,11 @@
 node_modules/
 dist/
-# relkit 上游稀疏检出，由 scripts/ensure-relkit.mjs 按固定点重建
+# relkit lock 装进来的 bindings / SDK 树
 third_party/
 .release/
 build/update-tools/
 out/
+target/
 *.log
 .DS_Store
 .orch-state/

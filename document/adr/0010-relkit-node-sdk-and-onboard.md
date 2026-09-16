@@ -1,12 +1,12 @@
 # 0010. 接入 relkit 自动更新：自研 Node SDK + 按 RUP 标准开箱
 
-- 状态：accepted
+- 状态：superseded by [0012](0012-relkit-updater-sidecar.md)（客户端改为 sidecar；发布侧 RUP 约定仍有效）
 - 日期：2026-08-31
 - 执行进展：[relkit 接入计划](../roadmap/relkit-onboard-plan.md)（阶段一至三已完成）
 
 ## 背景
 
-cronkit 需要自动更新。上游 [relkit](https://cnb.cool/shichao402/relkit) 实现了 RUP（Release & Update Protocol）v2，
+cronkit 需要自动更新。上游 [relkit](https://github.com/shichao402/relkit) 实现了 RUP（Release & Update Protocol）v2，
 发布侧与客户端侧的契约写在 relkit 仓库的 `SPEC.md`，结构 SSOT 在 `proto/rup/v2/`。
 
 硬约束有五条：

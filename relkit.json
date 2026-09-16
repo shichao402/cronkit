@@ -1,5 +1,15 @@
 {
   "product": "cronkit",
+  "sidecar": {
+    "packScript": "scripts/package-versioned.mjs"
+  },
+  "updater": {
+    "urlAllowlist": [
+      "src/core/update/config.ts",
+      "tools/ui-preview/mock-api.ts",
+      "scripts/relkit-smoke.mjs"
+    ]
+  },
   "agent": {
     "url": "https://publish.firoyang.com/v1/"
   },

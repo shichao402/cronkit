@@ -1,11 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  buildApplyArgs,
-  parseApplySession,
-  resolveInstallDir,
-  UPDATE_EXECUTABLE,
-  versionPayloadDir,
-} from "../src/core/update/apply";
+import { resolveInstallDir, UPDATE_EXECUTABLE, UPDATE_SIDECAR, updaterPath } from "../src/core/update/apply";
 import {
   canInstallNow,
   canSkip,
@@ -137,7 +131,7 @@ describe("current code resolution", () => {
   });
 });
 
-describe("versionedDir apply contract", () => {
+describe("versionedDir install root", () => {
   it("resolves both legacy and versioned installs to the stable root", () => {
     expect(resolveInstallDir("C:\\cronkit\\WorkspaceOrchestrator.exe")).toBe("C:\\cronkit");
     expect(
@@ -145,53 +139,9 @@ describe("versionedDir apply contract", () => {
     ).toBe("C:\\cronkit");
   });
 
-  it("builds the exact relkit-apply versionedDir arguments", () => {
-    const args = buildApplyArgs({
-      installDir: "C:\\cronkit",
-      stagedRoot: "C:\\data\\apply-4",
-      targetVersion: "0.2.0+4",
-      targetCode: 4,
-      sessionPath: "C:\\data\\update-apply.json",
-      logPath: "C:\\data\\update-apply.log",
-    });
-    expect(args).toContain("versionedDir");
-    expect(args).toContain(UPDATE_EXECUTABLE);
-    expect(args.slice(args.indexOf("--target-version"), args.indexOf("--target-version") + 2)).toEqual([
-      "--target-version",
-      "0.2.0+4",
-    ]);
-    expect(args.slice(args.indexOf("--retain-versions"), args.indexOf("--retain-versions") + 2)).toEqual([
-      "--retain-versions",
-      "2",
-    ]);
-  });
-
-  it("rejects unsafe version directory names", () => {
-    expect(() => versionPayloadDir("C:\\stage", "..\\escape")).toThrow("目录名");
-    expect(() =>
-      buildApplyArgs({
-        installDir: "C:\\cronkit",
-        stagedRoot: "C:\\stage",
-        targetVersion: "0.2.0+4",
-        targetCode: 0,
-        sessionPath: "C:\\session.json",
-        logPath: "C:\\apply.log",
-      }),
-    ).toThrow("正整数");
-  });
-
-  it("parses sidecar sessions without trusting malformed JSON shapes", () => {
-    expect(parseApplySession(null)).toBeNull();
-    expect(parseApplySession({ state: "done" })).toBeNull();
-    expect(
-      parseApplySession({
-        state: "failed",
-        installDir: "C:\\cronkit",
-        stagedRoot: "C:\\stage",
-        targetCode: 4,
-        targetVersion: "0.2.0+4",
-        message: "locked",
-      }),
-    ).toMatchObject({ state: "failed", targetCode: 4, message: "locked" });
+  it("places the updater sidecar next to the stable launcher", () => {
+    expect(updaterPath("C:\\cronkit")).toBe("C:\\cronkit\\relkit-updater.exe");
+    expect(UPDATE_SIDECAR).toBe("relkit-updater.exe");
+    expect(UPDATE_EXECUTABLE).toBe("WorkspaceOrchestrator.exe");
   });
 });

@@ -4,7 +4,7 @@
  * 输出：
  *   dist/cronkit-<version>-win-x64.zip
  *     WorkspaceOrchestrator.exe  (稳定 launcher)
- *     relkit-apply.exe           (固定到已审提交的 sidecar)
+ *     relkit-updater.exe         (lock 钉在 tools/bin 的 sidecar)
  *     active.json
  *     versions/<version>/...     (Electron 应用)
  *   dist/cronkit-<version>-win-x64-setup.exe
@@ -28,8 +28,6 @@ import { fileURLToPath } from "node:url";
 
 import yazl from "yazl";
 
-import { RELKIT_DIR } from "./relkit-pin.mjs";
-
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const buildOutputDir = path.resolve(root, process.argv[2] ?? "dist");
 const artifactOutputDir = path.join(root, "dist");
@@ -47,7 +45,10 @@ if (!existsSync(path.join(unpackedDir, "WorkspaceOrchestrator.exe"))) {
 const toolDir = path.join(root, "build", "update-tools");
 mkdirSync(toolDir, { recursive: true });
 const launcher = path.join(toolDir, "WorkspaceOrchestrator.exe");
-const sidecar = path.join(toolDir, "relkit-apply.exe");
+const sidecar = path.join(root, "tools", "bin", "relkit-updater.exe");
+if (!existsSync(sidecar)) {
+  throw new Error("缺少 tools/bin/relkit-updater.exe；先运行 python scripts/host/relkit_host.py install");
+}
 
 // 目标平台写死为 Windows x64 而不是跟随宿主：CNB 官方构建节点只有 Linux Docker，
 // 开发机是 Windows，两边必须产出同一套二进制，否则 CI 会静默产出 Linux 可执行文件。
@@ -67,27 +68,12 @@ run(
   { env: winEnv },
 );
 
-// sidecar 从固定点的 relkit 源码构建（scripts/relkit-pin.mjs），不走 `go install @commit`：
-// 同一份稀疏检出既提供 rup-client 也提供 relkit-apply，只有一个上游版本需要对齐，
-// 也不必让构建机拿到 cnb.cool 的 Go module 拉取凭据。
-const relkitDir = path.join(root, RELKIT_DIR);
-if (!existsSync(path.join(relkitDir, "cmd", "relkit-apply", "main.go"))) {
-  throw new Error(`缺少 ${RELKIT_DIR}；先运行 npm run ensure-relkit`);
-}
-run("go", ["build", "-trimpath", "-o", sidecar, "./cmd/relkit-apply"], {
-  cwd: relkitDir,
-  env: winEnv,
-});
-if (!existsSync(sidecar)) {
-  throw new Error(`relkit-apply 构建完成但未出现在 ${sidecar}`);
-}
-
 const bundleDir = path.join(buildOutputDir, "versioned");
 rmSync(bundleDir, { recursive: true, force: true });
 mkdirSync(path.join(bundleDir, "versions"), { recursive: true });
 cpSync(unpackedDir, path.join(bundleDir, "versions", version), { recursive: true });
 copyFileSync(launcher, path.join(bundleDir, "WorkspaceOrchestrator.exe"));
-copyFileSync(sidecar, path.join(bundleDir, "relkit-apply.exe"));
+copyFileSync(sidecar, path.join(bundleDir, "relkit-updater.exe"));
 writeFileSync(
   path.join(bundleDir, "active.json"),
   `${JSON.stringify(
@@ -115,7 +101,7 @@ console.log(`nsis installer: ${setup}`);
 
 /**
  * 用本机 makensis 把 versionedDir 打成首次安装用的 setup.exe。
- * 安装树与 zip 同源，因此装完后仍可走 relkit-apply。
+ * 安装树与 zip 同源，因此装完后仍可走 relkit-updater。
  */
 function buildNsisInstaller({ version, bundleDir, setup }) {
   const makensis = findMakensis();

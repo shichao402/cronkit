@@ -4,7 +4,6 @@
 # 推送前请先把 VERSION.json 改成对应版本并推到 main。
 # 密钥（仓库 Secrets）：
 #   RELKIT_UPLOAD_TOKEN（cronkit 专属上传凭据，必填）
-#   RELKIT_AGENT_URL（可选，可写站点根或 /v1，默认 https://publish.firoyang.com/v1）
 # 手动触发：Actions → Release → Run workflow（按 VERSION.json，默认 channel=beta）
 
 name: Release
@@ -36,9 +35,13 @@ jobs:
     runs-on: windows-latest
     env:
       RELKIT_UPLOAD_TOKEN: ${{ secrets.RELKIT_UPLOAD_TOKEN }}
-      RELKIT_AGENT_URL: ${{ secrets.RELKIT_AGENT_URL }}
+      RELKIT_RELEASE_VIA_CI: "1"
     steps:
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - uses: actions/setup-node@v4
         with:
@@ -48,7 +51,6 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.26.3"
-          # No go.sum in this repo; the default cache lookup only annotates.
           cache: false
 
       - name: Resolve version and channel
@@ -94,11 +96,11 @@ jobs:
           echo "channel=$CHANNEL" >> "$GITHUB_OUTPUT"
           echo "version=$VERSION channel=$CHANNEL tag=$TAG"
 
-      - name: Relkit SDK + deps
+      - name: Relkit lock + deps
         shell: bash
         run: |
           set -euo pipefail
-          node scripts/ensure-relkit.mjs
+          python scripts/host/relkit_host.py install
           npm ci
 
       - name: Checks
@@ -124,20 +126,13 @@ jobs:
         env:
           VERSION: ${{ steps.meta.outputs.version }}
           CHANNEL: ${{ steps.meta.outputs.channel }}
-          RELKIT_UPLOAD_PART_SIZE: ${{ vars.RELKIT_UPLOAD_PART_SIZE }}
-          RELKIT_UPLOAD_CONCURRENCY: ${{ vars.RELKIT_UPLOAD_CONCURRENCY }}
         run: |
           set -euo pipefail
           if [ -z "${RELKIT_UPLOAD_TOKEN:-}" ]; then
             echo "RELKIT_UPLOAD_TOKEN 未配置，无法发布"
             exit 1
           fi
-
-          ( cd third_party/relkit && go build -o "$OLDPWD/relkit-cli" ./cmd/relkit )
-          CLI=./relkit-cli
-          if [ -f ./relkit-cli.exe ]; then
-            CLI=./relkit-cli.exe
-          fi
+          CLI=./tools/bin/relkit.exe
           ZIP="dist/cronkit-${VERSION}-win-x64.zip"
           SETUP="dist/cronkit-${VERSION}-win-x64-setup.exe"
           if [ ! -f "$ZIP" ]; then
@@ -150,46 +145,8 @@ jobs:
             ls -l dist/ || true
             exit 1
           fi
-          # zip: auto-update client (os+arch, matches UPDATE_CLIENT_SELECTORS)
-          # setup: first-time install page (extra audience=user so old clients skip it)
           "$CLI" stage "$VERSION" --channel "$CHANNEL" \
             --add "$ZIP" os=windows,arch=x64 \
             --add "$SETUP" os=windows,arch=x64,audience=user
-
-          AGENT_URL="${RELKIT_AGENT_URL:-https://publish.firoyang.com/v1}"
-          AGENT_URL="${AGENT_URL%/}"
-          case "$AGENT_URL" in
-            */v1) ;;
-            *) AGENT_URL="${AGENT_URL}/v1" ;;
-          esac
-
-          tar -C ".relkit/staged/${VERSION}" -czf staged.tar.gz .
-          SHA=$(sha256sum staged.tar.gz | awk '{print $1}')
-          "$CLI" staged-put staged.tar.gz \
-            --product cronkit \
-            --version "$VERSION" \
-            --url "$AGENT_URL"
-
-          agent_curl() {
-            local method="$1" url="$2"
-            shift 2
-            local body code
-            body="$(mktemp)"
-            code="$(curl -sS -o "$body" -w "%{http_code}" -X "$method" \
-              -H "Authorization: Bearer ${RELKIT_UPLOAD_TOKEN}" \
-              "$@" \
-              "$url")"
-            if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
-              echo "agent ${method} ${url} HTTP ${code}: $(head -c 800 "$body")"
-              rm -f "$body"
-              return 1
-            fi
-            cat "$body"
-            rm -f "$body"
-          }
-
-          agent_curl POST "${AGENT_URL}/publish" \
-            -H "Content-Type: application/json" \
-            -d "{\"product\":\"cronkit\",\"version\":\"${VERSION}\",\"stagedSha256\":\"${SHA}\",\"idempotencyKey\":\"cronkit/${CHANNEL}/${VERSION}/${SHA}\"}"
-
+          python scripts/host/relkit_host.py release --execute
           echo "published cronkit ${VERSION} → ${CHANNEL}"

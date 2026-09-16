@@ -1,14 +1,15 @@
 # 0011. Windows 更新采用稳定 launcher + versionedDir
 
-- 状态：accepted
+- 状态：accepted（布局仍有效；apply 引擎改由 [ADR 0012](0012-relkit-updater-sidecar.md) 的 `relkit-updater` 承担）
 - 日期：2026-09-01
 - 上游决定：[ADR 0010](0010-relkit-node-sdk-and-onboard.md)
 
 ## 背景
 
 cronkit 是常驻托盘的 Electron 应用。Windows 会锁住运行中的 exe 与部分资源，不能由
-应用本身原地覆盖。`rup-client` 只负责 check / download / 校验，不提供 apply；
-relkit 的 `relkit-apply` 只实现 `versionedDir`，要求宿主提供稳定 launcher。
+应用本身原地覆盖。早期用 `rup-client` check/download、再用 `relkit-apply` 做
+`versionedDir` 切换；[ADR 0012](0012-relkit-updater-sidecar.md) 把引擎收进
+`relkit-updater`，但安装布局不变：稳定 launcher + `active.json` + `versions/`。
 
 旧版安装是一层 `win-unpacked`。改造还必须允许旧版直接迁移，不能要求用户先手工安装
 一个过渡版本。

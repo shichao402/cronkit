@@ -1,60 +1,45 @@
 #!/usr/bin/env node
-// relkit 跨实现闭环冒烟。
-//
-// 为什么需要它：relkit 的 conformance 夹具是 v1 JSON schema，验证的是「语义对齐」；
-// 线上真正传输的是 v2 protobuf。首次接入时正是靠本脚本抓到两个夹具覆盖不到的缺陷
-// （trustedKeys 类型过窄导致崩溃、Windows 上以追加模式句柄 truncate 抛 EPERM）。
-// 因此上线前必须跑一次本脚本，不能只看 npm test 全绿。
-//
-// 前置：
-//   1. relkit CLI 可用（可在 relkit 仓库 go build -o <某处>/relkit.exe ./cmd/relkit）
-//   2. rup-client 已构建（relkit/sdk/node 下 npm install && npm run build）
-//   3. 已在某个目录用 local 后端 publish 过一版，且 directory set 过
+// relkit 跨实现闭环冒烟：用 lock 钉住的 relkit-updater sidecar 打真实 v2 protobuf。
 //
 // 用法：
 //   node scripts/relkit-smoke.mjs <publishDir> <publicKeyBase64> [port]
 //
-// 其中 publishDir 是 local 后端的 outputDir（内含 directory/ index/ manifest/ artifact/），
-// publicKeyBase64 取自 relkit.json 的 signing.publicKeys[].publicKeyBase64。
-//
-// port 必须与发布时 relkit.json 里 backends.<local>.baseUrl 的端口**完全一致**（默认 18080）。
-// 原因是协议要求客户端禁止自行拼接 URL（SPEC §1.1）：index / manifest / artifact 的地址
-// 都是上一跳签名文档里的绝对 URL。换了端口，directory 验签能过，但它指向的 index 连不上，
-// 表现为 check-failed —— 那是配置不一致，不是 SDK 有问题。
+// port 必须与发布时 relkit.json 里 baseUrl 的端口完全一致（默认 18080）。
 
+import { spawn } from "node:child_process";
 import { createServer } from "node:http";
-import { createReadStream, statSync, mkdtempSync, rmSync } from "node:fs";
+import { createReadStream, existsSync, mkdtempSync, rmSync, statSync } from "node:fs";
 import { join, normalize, resolve } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
+import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
+import {
+  ClientProfileSchema,
+  Layout,
+  RuntimeSchema,
+  UpdaterEventSchema,
+  UpdaterRequestSchema,
+} from "@relkit/updater-bindings/updater/v1";
 
 const [rawPublishDir, publicKeyBase64, rawPort] = process.argv.slice(2);
 if (!rawPublishDir || !publicKeyBase64) {
-  console.error(
-    "usage: node scripts/relkit-smoke.mjs <publishDir> <publicKeyBase64> [port]",
-  );
+  console.error("usage: node scripts/relkit-smoke.mjs <publishDir> <publicKeyBase64> [port]");
+  process.exit(1);
+}
+
+const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
+const sidecar = join(root, "tools", "bin", process.platform === "win32" ? "relkit-updater.exe" : "relkit-updater");
+if (!existsSync(sidecar)) {
+  console.error("missing tools/bin/relkit-updater; run python scripts/host/relkit_host.py install");
   process.exit(1);
 }
 
 const publishDir = resolve(rawPublishDir);
 const PORT = Number(rawPort ?? 18080);
 const DEAD_PORT = PORT + 1;
-
-let RupUpdater;
-let MemoryUpdateStateStore;
-try {
-  ({ RupUpdater, MemoryUpdateStateStore } = await import("rup-client"));
-} catch (error) {
-  console.error(
-    "cannot load rup-client. Add it as a dependency, e.g.\n" +
-      '  "rup-client": "file:../relkit/sdk/node"\n' +
-      "then run npm install and build the SDK once (npm run build in sdk/node).",
-  );
-  console.error(String(error));
-  process.exit(1);
-}
+const MAX_FRAME = 32 << 20;
 
 let rangeRequests = 0;
-
 const server = createServer((req, res) => {
   const url = new URL(req.url, `http://127.0.0.1:${PORT}`);
   const rel = decodeURIComponent(url.pathname).replace(/^\/+/, "");
@@ -114,95 +99,146 @@ function check(label, ok, detail) {
   }
 }
 
-function makeUpdater(overrides = {}) {
-  return new RupUpdater({
-    product: "cronkit",
-    channel: "stable",
-    currentCode: 0,
-    entryUrls: [`${base}/directory/cronkit.pb`],
-    trustedKeys: { "cronkit-2026": Buffer.from(publicKeyBase64, "base64") },
-    clientSelectors: { os: "windows", arch: "x64" },
-    stateStore: new MemoryUpdateStateStore(),
-    ...overrides,
+function frame(schema, message) {
+  const payload = toBinary(schema, message);
+  const out = Buffer.alloc(4 + payload.length);
+  out.writeUInt32BE(payload.length, 0);
+  out.set(payload, 4);
+  return out;
+}
+
+async function runSidecar(stdinBytes) {
+  const child = spawn(sidecar, [], { stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
+  const events = [];
+  let pending = Buffer.alloc(0);
+  await new Promise((resolve, reject) => {
+    child.once("error", reject);
+    child.stdout.on("data", (chunk) => {
+      pending = Buffer.concat([pending, chunk]);
+      while (pending.length >= 4) {
+        const size = pending.readUInt32BE(0);
+        if (size > MAX_FRAME || pending.length < 4 + size) {
+          break;
+        }
+        events.push(fromBinary(UpdaterEventSchema, pending.subarray(4, 4 + size)));
+        pending = Buffer.from(pending.subarray(4 + size));
+      }
+    });
+    child.stdout.on("end", resolve);
+    child.stderr?.resume();
+    if (stdinBytes.length) {
+      child.stdin.write(stdinBytes);
+    }
+    child.stdin.end();
   });
+  return events;
+}
+
+function makeRequest(overrides = {}) {
+  const profile = create(ClientProfileSchema, {
+    product: overrides.product ?? "cronkit",
+    allowedChannels: ["stable"],
+    entryUrls: overrides.entryUrls ?? [`${base}/directory/cronkit.pb`],
+    trustedKeys: [
+      {
+        keyId: "cronkit-2026",
+        publicKey: Uint8Array.from(Buffer.from(overrides.publicKeyBase64 ?? publicKeyBase64, "base64")),
+      },
+    ],
+  });
+  const runtime = create(RuntimeSchema, {
+    channel: "stable",
+    currentCode: BigInt(overrides.currentCode ?? 0),
+    clientSelectors: overrides.clientSelectors ?? { os: "windows", arch: "x64" },
+    dataDir: staging,
+    sidecarPath: sidecar,
+    install: {
+      layout: Layout.VERSIONED_DIR,
+      installRoot: staging,
+      executableRelpath: "WorkspaceOrchestrator.exe",
+      sidecarRelpath: "relkit-updater.exe",
+      retain: 2,
+      relaunch: false,
+    },
+  });
+  return create(UpdaterRequestSchema, {
+    hello: { ipcMin: 1, ipcMax: 1 },
+    profile,
+    runtime,
+    op: { case: "check", value: { force: overrides.force ?? true } },
+  });
+}
+
+async function checkOp(overrides = {}) {
+  const events = await runSidecar(frame(UpdaterRequestSchema, makeRequest(overrides)));
+  const checkEvent = events.find((event) => event.kind.case === "check");
+  return checkEvent?.kind.case === "check" ? checkEvent.kind.value : undefined;
 }
 
 try {
   console.log("1. fresh install sees the release");
   {
-    const updater = makeUpdater();
-    const result = await updater.check({ force: true });
-    check("kind === update-available", result.kind === "update-available", result.kind);
-    if (result.kind === "update-available") {
-      check("code > 0", Number(result.target.code) > 0, String(result.target.code));
-      check("artifact selected", Boolean(result.artifact), "no artifact");
-
+    const result = await checkOp();
+    check("kind === updateAvailable", result?.kind.case === "updateAvailable", result?.kind.case);
+    if (result?.kind.case === "updateAvailable") {
+      check("code > 0", Number(result.kind.value.code) > 0, String(result.kind.value.code));
+      check("artifact selected", result.kind.value.artifacts.length > 0, "no artifact");
+      const planId = result.kind.value.planId;
       console.log("2. download passes size + sha256");
-      const file = await updater.download(result, { destinationDir: staging });
-      const size = statSync(file.path).size;
-      check("file landed", size > 0, `size=${size}`);
-      check("size matches manifest", size === Number(result.artifact.size), `size=${size}`);
-      check("source url recorded", Boolean(file.sourceUrl), "no sourceUrl");
+      const downloadReq = makeRequest();
+      downloadReq.op = { case: "download", value: { planId } };
+      const events = await runSidecar(frame(UpdaterRequestSchema, downloadReq));
+      const downloaded = events.find((event) => event.kind.case === "download");
+      check("download accepted", downloaded?.kind.case === "download", downloaded?.kind.case);
+      if (downloaded?.kind.case === "download" && downloaded.kind.value.kind.case === "downloaded") {
+        check("bytes > 0", Number(downloaded.kind.value.kind.value.bytes) > 0);
+      }
       check("server saw a Range request", rangeRequests > 0, `rangeRequests=${rangeRequests}`);
     }
-    await updater.close();
   }
 
   console.log("3. already-current client is up to date");
   {
-    const updater = makeUpdater({ currentCode: 2147483647 });
-    const result = await updater.check({ force: true });
-    check("kind === up-to-date", result.kind === "up-to-date", result.kind);
-    await updater.close();
+    const result = await checkOp({ currentCode: 2147483647 });
+    check("kind === upToDate", result?.kind.case === "upToDate", result?.kind.case);
   }
 
   console.log("4. wrong selectors find no artifact");
   {
-    // 这一项是故意复现 relkit 文档中 x64 / amd64 不一致造成的经典坑。
-    const updater = makeUpdater({ clientSelectors: { os: "windows", arch: "amd64" } });
-    const result = await updater.check({ force: true });
+    const result = await checkOp({ clientSelectors: { os: "windows", arch: "amd64" } });
     const noArtifact =
-      result.kind === "check-failed" ||
-      (result.kind === "update-available" && !result.artifact);
-    check("no artifact matches amd64", noArtifact, result.kind);
-    await updater.close();
+      result?.kind.case === "failed" ||
+      (result?.kind.case === "updateAvailable" && result.kind.value.artifacts.length === 0);
+    check("no artifact matches amd64", Boolean(noArtifact), result?.kind.case);
   }
 
   console.log("5. wrong trusted key is rejected");
   {
-    const updater = makeUpdater({ trustedKeys: { "cronkit-2026": Buffer.alloc(32, 7) } });
-    const result = await updater.check({ force: true });
-    check("kind === check-failed", result.kind === "check-failed", result.kind);
-    await updater.close();
+    const result = await checkOp({ publicKeyBase64: Buffer.alloc(32, 7).toString("base64") });
+    check("kind === failed", result?.kind.case === "failed", result?.kind.case);
   }
 
   console.log("6. wrong product is rejected");
   {
-    const updater = makeUpdater({ product: "cronkitt" });
-    const result = await updater.check({ force: true });
-    check("kind === check-failed", result.kind === "check-failed", result.kind);
-    await updater.close();
+    const result = await checkOp({ product: "cronkitt" });
+    check("kind === failed", result?.kind.case === "failed", result?.kind.case);
   }
 
   console.log("7. unreachable entry fails without crashing");
   {
-    const updater = makeUpdater({
+    const result = await checkOp({
       entryUrls: [`http://127.0.0.1:${DEAD_PORT}/directory/cronkit.pb`],
     });
-    const result = await updater.check({ force: true });
-    check("kind === check-failed", result.kind === "check-failed", result.kind);
-    check("no file left behind", statSync(staging).isDirectory(), "staging gone");
-    await updater.close();
+    check("kind === failed", result?.kind.case === "failed", result?.kind.case);
+    check("no crash", statSync(staging).isDirectory());
   }
 
   console.log("8. throttling holds without force");
   {
-    const updater = makeUpdater();
-    const first = await updater.check({ force: true });
-    check("first check ran", first.kind !== "check-throttled", first.kind);
-    const second = await updater.check();
-    check("second check throttled", second.kind === "check-throttled", second.kind);
-    await updater.close();
+    const first = await checkOp({ force: true });
+    check("first check ran", first?.kind.case !== "throttled", first?.kind.case);
+    const second = await checkOp({ force: false });
+    check("second check throttled", second?.kind.case === "throttled", second?.kind.case);
   }
 } finally {
   server.close();

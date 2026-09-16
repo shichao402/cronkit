@@ -352,7 +352,7 @@ if (!gotLock) {
       log: (message) => console.log(message),
     });
     setupTray();
-    updates.start();
+    void updates.start();
     ipcMain.handle("getSnapshot", () => orch.snapshot());
     ipcMain.handle("runWorkspace", (_e, id: string) => {
       void orch.runTarget(id, "manual").catch(() => undefined);

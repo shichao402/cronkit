@@ -4,10 +4,12 @@ import react from "@vitejs/plugin-react";
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()],
+    build: { outDir: "target/electron/main" },
   },
   preload: {
     plugins: [externalizeDepsPlugin()],
     build: {
+      outDir: "target/electron/preload",
       rollupOptions: {
         output: {
           format: "cjs",
@@ -18,5 +20,6 @@ export default defineConfig({
   },
   renderer: {
     plugins: [react()],
+    build: { outDir: "target/electron/renderer" },
   },
 });

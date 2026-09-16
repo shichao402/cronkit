@@ -78,9 +78,9 @@
       "note": "stage+simulate verified; publish remains CI-only"
     },
     "pack.ci": {
-      "status": "unanswered",
-      "value": null,
-      "note": ""
+      "status": "confirmed",
+      "value": ".github/workflows/release.yml",
+      "note": "GitHub Actions publishes lock-pinned relkit artifacts; token stays in CI secrets"
     },
     "ops.retrospect": {
       "status": "verified",

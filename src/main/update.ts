@@ -1,52 +1,21 @@
 /**
  * Electron 侧的更新服务。
  *
- * 分工（守 ADR 0002）：`src/core/update/` 只放纯逻辑，本文件负责所有跟 Electron
- * 相关的部分——状态目录、通知、托盘菜单、IPC 广播。`rup-client` 只在主进程用，
- * 渲染进程通过 IPC 拿状态。
- *
- * apply 由宿主实现：本进程只负责确认、解包和启动等待脚本，真正的目录切换由
- * `relkit-apply` 在本进程退出后执行，避免 Windows 文件锁造成半新半旧。
+ * 分工（守 ADR 0002 / 0012）：`src/core/update/` 放纯逻辑与 sidecar facade，
+ * 本文件负责对话框、托盘、IPC 广播。check / download / apply 全部经
+ * relkit-updater sidecar。
  */
 
 import { app, dialog, Notification, shell } from "electron";
-import { spawn } from "node:child_process";
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  rmSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
-import path from "node:path";
-import extractZip from "extract-zip";
-import {
-  FileUpdateStateStore,
-  RupUpdater,
-  UpdateScheduler,
-  type UpdateAvailable,
-  type UpdateCheckResult,
-  type VersionNode,
-} from "rup-client";
-
-import {
-  buildApplyArgs,
-  parseApplySession,
-  resolveInstallDir,
-  UPDATE_APPLY_SIDECAR,
-  UPDATE_EXECUTABLE,
-  versionPayloadDir,
-} from "../core/update/apply";
-import {
-  CURRENT_VERSION_LABEL,
-  UPDATE_CHANNEL,
-  UPDATE_CLIENT_SELECTORS,
-  UPDATE_ENTRY_URLS,
-  UPDATE_PRODUCT,
-  UPDATE_TRUSTED_KEYS,
-  resolveCurrentCode,
-} from "../core/update/config";
+import { existsSync } from "node:fs";
+import { timestampDate } from "@bufbuild/protobuf/wkt";
+import type { CheckResult, UpdateAvailable } from "@relkit/updater-bindings/updater/v1";
+import { SessionPhase } from "@relkit/updater-bindings/updater/v1";
+import { resolveInstallDir, updaterPath } from "../core/update/apply";
+import { CheckLoop } from "../core/update/check-loop";
+import { CURRENT_VERSION_LABEL } from "../core/update/config";
+import { buildClientProfile, buildRuntime } from "../core/update/profile";
+import { Updater } from "../core/update/sidecar";
 import {
   initialStatus,
   installBlockedReason,
@@ -54,81 +23,61 @@ import {
   type UpdateTargetInfo,
 } from "../core/update/status";
 
-/** 进度推送的最小间隔：再密就只是让渲染进程忙着重绘。 */
 const PROGRESS_THROTTLE_MS = 400;
 
 export type UpdateServiceOptions = {
   dataDir: string;
-  /** 状态变化时回调，用于推给渲染进程。 */
   onChange: (status: UpdateStatus) => void;
-  /** 是否有任务正在运行，决定能否提示安装。 */
   hasRunningTasks: () => boolean;
-  /** sidecar 启动后停止编排器并允许窗口关闭。 */
   prepareToQuit: () => void;
   log?: (message: string) => void;
 };
 
 export class UpdateService {
   private readonly options: UpdateServiceOptions;
-  private readonly stagingDir: string;
   private readonly enabled: boolean;
-  private updater: RupUpdater | null = null;
-  private scheduler: UpdateScheduler | null = null;
+  private updater: Updater | null = null;
+  private loop: CheckLoop | null = null;
   private status: UpdateStatus;
-  /** 保留最近一次可用更新的原始结果，download 需要它。 */
-  private available: UpdateAvailable | null = null;
+  private planId: string | null = null;
   private lastProgressAt = 0;
   private inflight: Promise<UpdateStatus> | null = null;
 
   constructor(options: UpdateServiceOptions) {
     this.options = options;
-    this.stagingDir = path.join(options.dataDir, "update-staging");
-    // 开发态不检查更新：currentCode 取哨兵值后本就不会有结果，索性连网络都不碰。
     this.enabled = app.isPackaged;
     this.status = initialStatus(CURRENT_VERSION_LABEL, this.enabled);
-    this.restoreApplySession();
   }
 
   snapshot(): UpdateStatus {
     return this.status;
   }
 
-  /** 启动周期检查。开发态直接返回，不建 updater、不发请求。 */
-  start(): void {
+  async start(): Promise<void> {
     if (!this.enabled) {
       this.log("开发态，跳过更新检查");
       return;
     }
-    try {
-      this.updater = this.buildUpdater();
-    } catch (error) {
-      // 构造失败几乎只有两种原因：没有内嵌公钥，或入口地址为空。
-      // 这两种都是构建配置错误，必须显式暴露而不是静默不更新。
-      this.patch({ phase: "failed", message: this.describe(error) });
-      this.log(`更新服务初始化失败：${this.describe(error)}`);
+    const opened = await this.openUpdater();
+    if (!opened) {
       return;
     }
-    this.scheduler = new UpdateScheduler({
-      check: (options) => this.runCheck(options.force),
-      onResult: (result) => this.notifyIfWorthwhile(result),
-      log: (message) => this.log(message),
+    await this.restoreSession();
+    this.loop = new CheckLoop(opened, undefined, (event) => {
+      if (event.kind === "result" && event.result) {
+        this.applyCheck(event.result);
+        this.notifyIfWorthwhile(event.result);
+      }
     });
-    this.scheduler.start();
+    this.loop.start({ checkOnStart: true, forceOnStart: false });
   }
 
   stop(): void {
-    this.scheduler?.stop();
-    this.scheduler = null;
-    this.updater?.close();
+    this.loop?.stop();
+    this.loop = null;
     this.updater = null;
   }
 
-  /**
-   * 用户主动检查。`force` 绕过节流。
-   *
-   * 并发调用会复用同一次请求：托盘和设置页可能同时点，重复发请求只会让节流状态
-   * 和进度回调互相打断。
-   */
   async check(force = true): Promise<UpdateStatus> {
     if (!this.enabled) {
       return this.status;
@@ -137,7 +86,13 @@ export class UpdateService {
       return this.inflight;
     }
     const task = (async () => {
-      const result = await this.runCheck(force);
+      const updater = await this.ensureUpdater();
+      if (!updater) {
+        return this.status;
+      }
+      this.patch({ phase: "checking", message: undefined, attempts: undefined });
+      const result = await updater.check({ force });
+      this.applyCheck(result);
       this.notifyIfWorthwhile(result);
       return this.status;
     })().finally(() => {
@@ -147,87 +102,81 @@ export class UpdateService {
     return task;
   }
 
-  /** 下载当前可用的更新，校验通过后转入 ready。 */
   async download(): Promise<UpdateStatus> {
     const updater = this.updater;
-    const available = this.available;
-    if (!updater || !available) {
+    const planId = this.planId;
+    if (!updater || !planId) {
       this.patch({ message: "没有待下载的更新" });
       return this.status;
     }
     if (this.status.phase === "downloading") {
       return this.status;
     }
-
-    mkdirSync(this.stagingDir, { recursive: true });
     this.lastProgressAt = 0;
     this.patch({
       phase: "downloading",
-      progress: {
-        receivedBytes: 0,
-        totalBytes: Number(available.artifact.size),
-        bytesPerSecond: 0,
-      },
+      progress: { receivedBytes: 0, totalBytes: this.status.target?.sizeBytes ?? 0, bytesPerSecond: 0 },
       message: undefined,
     });
-
     try {
-      const verified = await updater.download(available, {
-        destinationDir: this.stagingDir,
-        // SDK 的字段是 received / total（见 rup-client 的 DownloadProgress），
-        // 这里转成本项目状态里的 *Bytes 命名，避免渲染层再记两套名字。
-        onProgress: (progress) => {
-          const now = Date.now();
-          const done = progress.total > 0 && progress.received >= progress.total;
-          if (!done && now - this.lastProgressAt < PROGRESS_THROTTLE_MS) {
-            return;
-          }
-          this.lastProgressAt = now;
-          this.patch({
-            phase: "downloading",
-            progress: {
-              receivedBytes: progress.received,
-              totalBytes: progress.total,
-              bytesPerSecond: progress.bytesPerSecond,
-            },
-          });
-        },
+      const result = await updater.download(planId, (event) => {
+        if (event.kind.case !== "progress") {
+          return;
+        }
+        const now = Date.now();
+        const progress = event.kind.value;
+        const received = Number(progress.bytesReceived);
+        const total = Number(progress.bytesTotal);
+        const done = total > 0 && received >= total;
+        if (!done && now - this.lastProgressAt < PROGRESS_THROTTLE_MS) {
+          return;
+        }
+        this.lastProgressAt = now;
+        this.patch({
+          phase: "downloading",
+          progress: {
+            receivedBytes: received,
+            totalBytes: total,
+            bytesPerSecond: Number(progress.bytesPerSecond),
+          },
+        });
       });
-      this.log(`更新已下载并校验通过：${verified.path}（来源 ${verified.sourceUrl}）`);
-      this.patch({
-        phase: "ready",
-        downloadedPath: verified.path,
-        progress: {
-          receivedBytes: Number(available.artifact.size),
-          totalBytes: Number(available.artifact.size),
-          bytesPerSecond: 0,
-        },
-      });
-      this.announce("更新已就绪", `${available.target.version} 已下载完成，可以安装`);
+      if (result.kind.case === "downloaded") {
+        const downloaded = result.kind.value;
+        this.log(`更新已下载并校验通过：plan ${downloaded.planId}`);
+        this.patch({
+          phase: "ready",
+          progress: {
+            receivedBytes: Number(downloaded.bytes),
+            totalBytes: Number(downloaded.bytes),
+            bytesPerSecond: 0,
+          },
+        });
+        this.announce("更新已就绪", `${this.status.target?.version ?? ""} 已下载完成，可以安装`);
+      } else {
+        const why =
+          result.kind.case === "failed"
+            ? (result.kind.value.error?.message ?? "下载失败")
+            : "下载失败";
+        this.log(`更新下载失败：${why}`);
+        this.patch({ phase: "available", message: why, progress: undefined });
+      }
     } catch (error) {
       const why = this.describe(error);
       this.log(`更新下载失败：${why}`);
-      // 下载或校验失败后按 SPEC §12.6 查一次紧急通知：可能发布方已经知道这一版
-      // 有问题并给了手动地址。
-      const fallback = await this.updater?.checkFallback().catch(() => null);
-      if (fallback) {
-        this.applyResult(fallback);
-      } else {
-        this.patch({ phase: "available", message: why, progress: undefined });
-      }
+      this.patch({ phase: "available", message: why, progress: undefined });
     }
     return this.status;
   }
 
-  /** 跳过这一版。强制更新不允许跳过。 */
   async skip(): Promise<UpdateStatus> {
     const updater = this.updater;
-    const target = this.available?.target;
-    if (!updater || !target || this.available?.mandatory) {
+    const target = this.status.target;
+    if (!updater || !target || target.mandatory) {
       return this.status;
     }
-    await updater.skip(target);
-    this.available = null;
+    await updater.skip(BigInt(target.code));
+    this.planId = null;
     this.patch({
       phase: "current",
       target: undefined,
@@ -238,18 +187,17 @@ export class UpdateService {
     return this.status;
   }
 
-  /** 解包已校验产物，并在当前进程退出后交给 relkit-apply 原子切换。 */
   async applyDownloaded(): Promise<{ ok: boolean; canceled?: boolean; error?: string }> {
     const blocked = installBlockedReason(this.status, this.options.hasRunningTasks());
     if (blocked) {
       return { ok: false, error: blocked };
     }
+    const updater = this.updater;
+    const planId = this.planId;
     const target = this.status.target;
-    const downloadedPath = this.status.downloadedPath;
-    if (!target || !downloadedPath) {
+    if (!updater || !planId || !target) {
       return { ok: false, error: "没有已下载的更新" };
     }
-
     const confirmation = await dialog.showMessageBox({
       type: "question",
       title: "安装更新",
@@ -266,73 +214,23 @@ export class UpdateService {
     if (this.options.hasRunningTasks()) {
       return { ok: false, error: "有任务正在运行，等它结束后再安装" };
     }
-
     this.patch({ phase: "applying", message: undefined });
-    const stagedRoot = path.join(this.stagingDir, `apply-${target.code}`);
     try {
-      rmSync(stagedRoot, { recursive: true, force: true });
-      mkdirSync(stagedRoot, { recursive: true });
-      await extractZip(downloadedPath, { dir: stagedRoot });
-
-      const payloadDir = versionPayloadDir(stagedRoot, target.version);
-      const sidecar = path.join(stagedRoot, UPDATE_APPLY_SIDECAR);
-      const launcher = path.join(stagedRoot, UPDATE_EXECUTABLE);
-      const targetExecutable = path.join(payloadDir, UPDATE_EXECUTABLE);
-      for (const required of [sidecar, launcher, targetExecutable]) {
-        if (!existsSync(required)) {
-          throw new Error(`更新包结构不完整：缺少 ${path.relative(stagedRoot, required)}`);
+      const result = await updater.apply(planId);
+      if (result.kind.case === "accepted") {
+        this.log(`apply 已接受：session ${result.kind.value.sessionId}`);
+        if (result.kind.value.requiresHostExit) {
+          this.options.prepareToQuit();
+          app.quit();
         }
+        return { ok: true };
       }
-
-      const installDir = resolveInstallDir(process.execPath);
-      const sessionPath = path.join(installDir, "update_apply.json");
-      const logPath = path.join(this.options.dataDir, "logs", "update-apply.log");
-      const args = buildApplyArgs({
-        installDir,
-        stagedRoot,
-        targetVersion: target.version,
-        targetCode: target.code,
-        sessionPath,
-        logPath,
-      });
-      const requestPath = path.join(stagedRoot, "apply-request.json");
-      const now = new Date().toISOString();
-      writeFileSync(
-        sessionPath,
-        JSON.stringify({
-          state: "pending",
-          startedAt: now,
-          updatedAt: now,
-          installDir,
-          stagedRoot,
-          targetCode: target.code,
-          targetVersion: target.version,
-        }),
-        "utf8",
-      );
-      writeFileSync(requestPath, JSON.stringify({ sidecar, arguments: args }), "utf8");
-
-      const waitScript = app.isPackaged
-        ? path.join(process.resourcesPath, "scripts", "apply-update.ps1")
-        : path.join(app.getAppPath(), "scripts", "apply-update.ps1");
-      if (!existsSync(waitScript)) {
-        throw new Error("找不到更新等待脚本");
-      }
-      await spawnDetached("powershell", [
-        "-NoProfile",
-        "-ExecutionPolicy",
-        "Bypass",
-        "-File",
-        waitScript,
-        "-WaitPid",
-        String(process.pid),
-        "-RequestPath",
-        requestPath,
-      ]);
-      this.log(`已启动 apply 等待进程：${target.version} -> ${installDir}`);
-      this.options.prepareToQuit();
-      app.quit();
-      return { ok: true };
+      const why =
+        result.kind.case === "failed"
+          ? (result.kind.value.error?.message ?? "安装未被接受")
+          : "安装未被接受";
+      this.patch({ phase: "ready", message: why });
+      return { ok: false, error: why };
     } catch (error) {
       const why = this.describe(error);
       this.log(`启动更新安装失败：${why}`);
@@ -341,23 +239,15 @@ export class UpdateService {
     }
   }
 
-  /**
-   * 保留“打开所在目录”作为排障入口；正常安装走 applyDownloaded。
-   */
   async revealDownload(): Promise<{ ok: boolean; error?: string }> {
     const blocked = installBlockedReason(this.status, this.options.hasRunningTasks());
     if (blocked) {
       return { ok: false, error: blocked };
     }
-    const target = this.status.downloadedPath;
-    if (!target) {
-      return { ok: false, error: "没有已下载的文件" };
-    }
-    shell.showItemInFolder(target);
+    shell.showItemInFolder(this.options.dataDir);
     return { ok: true };
   }
 
-  /** 打开紧急通知里的手动下载地址。 */
   async openManualUrl(): Promise<{ ok: boolean; error?: string }> {
     const url = this.status.manualUrl;
     if (!url) {
@@ -371,107 +261,88 @@ export class UpdateService {
     }
   }
 
-  private buildUpdater(): RupUpdater {
-    const stateStore = new FileUpdateStateStore({
-      directory: this.options.dataDir,
-      product: UPDATE_PRODUCT,
-      channel: UPDATE_CHANNEL,
-    });
-    return new RupUpdater({
-      product: UPDATE_PRODUCT,
-      channel: UPDATE_CHANNEL,
-      currentCode: resolveCurrentCode(app.isPackaged),
-      trustedKeys: { ...UPDATE_TRUSTED_KEYS },
-      clientSelectors: { ...UPDATE_CLIENT_SELECTORS },
-      entryUrls: [...UPDATE_ENTRY_URLS],
-      stateStore,
-      log: (message) => this.log(message),
-    });
+  private async openUpdater(): Promise<Updater | null> {
+    const installDir = resolveInstallDir(process.execPath);
+    const sidecar = updaterPath(installDir);
+    if (!existsSync(sidecar)) {
+      this.patch({
+        phase: "failed",
+        message: "安装包缺少 relkit-updater，请重新下载完整安装包",
+      });
+      this.log(`sidecar 不存在：${sidecar}`);
+      return null;
+    }
+    const opened = await Updater.open(
+      buildClientProfile(),
+      buildRuntime({
+        isPackaged: app.isPackaged,
+        executablePath: process.execPath,
+        dataDir: this.options.dataDir,
+        sidecarPath: sidecar,
+      }),
+    );
+    if (opened.kind === "failed") {
+      this.patch({ phase: "failed", message: opened.error.message });
+      this.log(`更新服务初始化失败：${opened.error.message}`);
+      return null;
+    }
+    this.updater = opened.updater;
+    return opened.updater;
   }
 
-  private restoreApplySession(): void {
-    if (!app.isPackaged) {
-      return;
-    }
-    const sessionPath = path.join(resolveInstallDir(process.execPath), "update_apply.json");
-    if (!existsSync(sessionPath)) {
-      return;
-    }
-    try {
-      const session = parseApplySession(JSON.parse(readFileSync(sessionPath, "utf8")));
-      if (!session) {
-        this.log("忽略格式无效的 apply session");
-        return;
-      }
-      if (session.state === "succeeded") {
-        this.status = {
-          ...this.status,
-          phase: "current",
-          lastCheckedAt: session.updatedAt ?? new Date().toISOString(),
-        };
-        unlinkSync(sessionPath);
-        this.log(`更新安装完成：${session.targetVersion}`);
-      } else if (session.state === "failed") {
-        this.status = {
-          ...this.status,
-          phase: "failed",
-          message: `上次安装更新失败：${session.message || "未知错误"}`,
-        };
-      } else {
-        this.status = {
-          ...this.status,
-          phase: "failed",
-          message: "上次安装更新未完成，请查看更新日志后重试",
-        };
-      }
-    } catch (error) {
-      this.log(`读取 apply session 失败：${this.describe(error)}`);
-    }
+  private async ensureUpdater(): Promise<Updater | null> {
+    return this.updater ?? this.openUpdater();
   }
 
-  private async runCheck(force: boolean): Promise<UpdateCheckResult> {
+  private async restoreSession(): Promise<void> {
     const updater = this.updater;
     if (!updater) {
-      return { kind: "check-failed", reason: "更新服务未初始化", attempts: [] };
+      return;
     }
-    this.patch({ phase: "checking", message: undefined, attempts: undefined });
-    let result: UpdateCheckResult;
     try {
-      result = await updater.check({ force });
+      const snapshot = await updater.status();
+      const session = snapshot.activeSession;
+      if (!session) {
+        return;
+      }
+      if (session.phase === SessionPhase.COMPLETED) {
+        this.patch({ phase: "current", lastCheckedAt: new Date().toISOString() });
+        return;
+      }
+      if (session.phase === SessionPhase.NEEDS_ATTENTION || session.phase === SessionPhase.ROLLED_BACK) {
+        this.patch({
+          phase: "failed",
+          message: `上次安装更新失败：${session.error?.message || "未知错误"}`,
+        });
+      }
     } catch (error) {
-      result = {
-        kind: "check-failed",
-        reason: this.describe(error),
-        attempts: [],
-      };
+      this.log(`读取 sidecar 状态失败：${this.describe(error)}`);
     }
-    this.applyResult(result);
-    return result;
   }
 
-  private applyResult(result: UpdateCheckResult): void {
+  private applyCheck(result: CheckResult): void {
     const now = new Date().toISOString();
-    switch (result.kind) {
-      case "up-to-date":
-        this.available = null;
+    switch (result.kind.case) {
+      case "upToDate":
+        this.planId = null;
         this.patch({
           phase: "current",
           lastCheckedAt: now,
           target: undefined,
           downloadedPath: undefined,
           progress: undefined,
-          message: result.currentIsYanked
+          message: result.kind.value.currentIsYanked
             ? "当前版本已被发布方撤回，但暂时没有更新的版本可用"
             : undefined,
         });
         break;
-      case "update-available": {
-        this.available = result;
-        void this.markSkipped(result);
+      case "updateAvailable": {
+        const available = result.kind.value;
+        this.planId = available.planId;
         this.patch({
           phase: "available",
           lastCheckedAt: now,
-          target: toTargetInfo(result),
+          target: toTargetInfo(available),
           message: undefined,
           progress: undefined,
           downloadedPath: undefined,
@@ -479,62 +350,50 @@ export class UpdateService {
         });
         break;
       }
-      case "check-throttled":
-        // 节流不是错误，只更新下次可查时间，不覆盖已有阶段。
+      case "throttled": {
+        const next = result.kind.value.nextAllowedAt
+          ? timestampDate(result.kind.value.nextAllowedAt).toISOString()
+          : undefined;
         this.patch({
           phase: this.status.phase === "checking" ? previousPhase(this.status) : this.status.phase,
-          nextCheckAt: result.nextAllowedAt.toISOString(),
+          nextCheckAt: next,
         });
         break;
-      case "check-failed":
+      }
+      case "failed":
         this.patch({
           phase: "failed",
           lastCheckedAt: now,
-          message: result.reason,
-          attempts: result.attempts,
+          message: result.kind.value.error?.message ?? "检查失败",
+          attempts: result.kind.value.error?.attempts,
           progress: undefined,
         });
         break;
-      case "fallback-required":
-        // 紧急通知禁止自动下载，只展示并给手动地址。
-        this.available = null;
+      case "fallbackRequired":
+        this.planId = null;
         this.patch({
           phase: "manual",
           lastCheckedAt: now,
-          message: result.message,
-          manualUrl: result.manualUrl,
+          message: result.kind.value.message,
+          manualUrl: result.kind.value.manualUrl,
           target: undefined,
           progress: undefined,
           downloadedPath: undefined,
         });
         break;
+      default:
+        break;
     }
   }
 
-  private async markSkipped(result: UpdateAvailable): Promise<void> {
-    const updater = this.updater;
-    if (!updater || result.mandatory) {
+  private notifyIfWorthwhile(result: CheckResult): void {
+    if (result.kind.case === "updateAvailable") {
+      const prefix = result.kind.value.mandatory ? "必须更新" : "有新版本";
+      this.announce(prefix, `${result.kind.value.version} 可以下载了`);
       return;
     }
-    try {
-      const skipped = await updater.isSkipped(result.target as VersionNode);
-      if (skipped && this.status.phase === "available") {
-        this.patch({ skipped: true });
-      }
-    } catch {
-      // 跳过标记查不到不影响主流程。
-    }
-  }
-
-  /** 只在真正需要用户知道时才弹通知，避免每次周期检查都打扰。 */
-  private notifyIfWorthwhile(result: UpdateCheckResult): void {
-    if (result.kind === "update-available") {
-      const prefix = result.mandatory ? "必须更新" : "有新版本";
-      this.announce(prefix, `${result.target.version} 可以下载了`);
-      return;
-    }
-    if (result.kind === "fallback-required") {
-      this.announce("需要手动更新", result.message);
+    if (result.kind.case === "fallbackRequired") {
+      this.announce("需要手动更新", result.kind.value.message);
     }
   }
 
@@ -559,43 +418,23 @@ export class UpdateService {
   }
 }
 
-function spawnDetached(command: string, args: string[]): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, {
-      detached: true,
-      stdio: "ignore",
-      windowsHide: true,
-    });
-    child.once("error", reject);
-    child.once("spawn", () => {
-      child.unref();
-      resolve();
-    });
-  });
-}
-
-/**
- * 节流命中时要退回到什么阶段。
- *
- * `checking` 只是过渡态，节流后停在它上面会让 UI 一直转圈。有目标就回 available，
- * 否则回 idle。
- */
 function previousPhase(status: UpdateStatus): UpdateStatus["phase"] {
-  if (status.downloadedPath) {
+  if (status.phase === "ready" || status.downloadedPath) {
     return "ready";
   }
   return status.target ? "available" : "idle";
 }
 
-function toTargetInfo(result: UpdateAvailable): UpdateTargetInfo {
+function toTargetInfo(available: UpdateAvailable): UpdateTargetInfo {
+  const artifact = available.artifacts[0];
   return {
-    version: result.target.version,
-    code: Number(result.target.code),
-    mandatory: result.mandatory,
-    remainingHops: result.remainingHops,
-    isFinalHop: result.isFinalHop,
-    releaseNotes: result.releaseNotesMarkdown,
-    releaseNotesUrl: result.releaseNotesUrl,
-    sizeBytes: Number(result.artifact.size),
+    version: available.version,
+    code: Number(available.code),
+    mandatory: available.mandatory,
+    remainingHops: available.remainingHops,
+    isFinalHop: available.remainingHops <= 1,
+    releaseNotes: available.releaseNotesMarkdown,
+    releaseNotesUrl: available.releaseNotesUrl,
+    sizeBytes: artifact ? Number(artifact.size) : 0,
   };
 }

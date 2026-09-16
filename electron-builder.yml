@@ -5,7 +5,7 @@ directories:
   output: dist
   buildResources: build
 files:
-  - out/**/*
+  - target/electron/**/*
   - package.json
 extraResources:
   - from: resources
@@ -17,7 +17,6 @@ extraResources:
     filter:
       - list-occupants.ps1
       - quit-idle-apps.ps1
-      - apply-update.ps1
 asar: true
 win:
   icon: build/icon.png

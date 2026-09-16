@@ -12,9 +12,13 @@ npm install
 npm start
 ```
 
-`npm install` 的 preinstall 会把 relkit 按固定点稀疏检出到 `third_party/relkit` 并构建
-其中的 `rup-client`（自动更新用的 SDK），因此首次安装需要能访问 GitHub。已在固定点时
-秒退。抬固定点改 [`scripts/relkit-pin.mjs`](scripts/relkit-pin.mjs)，然后 `npm run ensure-relkit`。
+`npm install` 前需要 lock 钉住的 bindings：
+
+```bat
+python scripts/host/relkit_host.py install
+npm install
+npm start
+```
 
 首次启动会在 `%APPDATA%\cronkit\config.yaml` 写入一份探测到的本机配置（v2）。若本机还有旧目录 `%APPDATA%\workspace-orchestrator`，会把配置、状态、日志和 toolset 迁过去。打开旧 v1 配置会在内存中迁移预览，**点保存**后才写成 v2。默认**不启用自动调度**，避免未经确认就 `svn update`。
 
@@ -46,15 +50,16 @@ npm run dist
 产物：
 
 - `dist\cronkit-<version>-win-x64.zip`：versionedDir 发布包（稳定 launcher、
-  `relkit-apply.exe`、`active.json`、`versions/<version>/`），供自动更新。
+  `relkit-updater.exe`、`active.json`、`versions/<version>/`），供自动更新。
 - `dist\cronkit-<version>-win-x64-setup.exe`：NSIS 首次安装包，安装树与 zip 同源。
 
 `.release\win-unpacked` 只是被忽略的构建中间目录，不能直接发布。
 本地需要已安装 [NSIS 3](https://nsis.sourceforge.io/)（`makensis` 在 PATH，或设 `MAKENSIS`）。
 
-本地打包**只用于验证**，产物不要拿去发布（见下）。Go launcher / sidecar 一律以
-`GOOS=windows GOARCH=amd64` 交叉编译，zip 由 yazl 生成，因此非 Windows 宿主也能打出
-与 CI 同构的 zip；**NSIS setup.exe 只在 Windows（本机或 `windows-latest` CI）生成**。
+本地打包**只用于验证**，产物不要拿去发布（见下）。Go launcher 以
+`GOOS=windows GOARCH=amd64` 交叉编译，sidecar 来自 `tools/bin/relkit-updater.exe`，
+zip 由 yazl 生成，因此非 Windows 宿主也能打出与 CI 同构的 zip；**NSIS setup.exe
+只在 Windows（本机或 `windows-latest` CI）生成**。
 
 ## 发版
 
