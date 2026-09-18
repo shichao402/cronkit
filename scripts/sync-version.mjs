@@ -39,8 +39,8 @@ if (!existsSync(versionPath)) {
 }
 
 const versionDoc = readJson(versionPath);
-if (versionDoc.schema !== "rup.version/1") {
-  fail(`VERSION.json schema must be "rup.version/1", got ${JSON.stringify(versionDoc.schema)}`);
+if (versionDoc.schema !== "relkit.version/1") {
+  fail(`VERSION.json schema must be "relkit.version/1", got ${JSON.stringify(versionDoc.schema)}`);
 }
 
 const raw = versionDoc.version;
