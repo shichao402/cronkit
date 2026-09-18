@@ -146,7 +146,7 @@ jobs:
             exit 1
           fi
           "$CLI" stage "$VERSION" --channel "$CHANNEL" \
-            --add "$ZIP" os=windows,arch=x64 \
-            --add "$SETUP" os=windows,arch=x64,audience=user
+            --install "$ZIP" os=windows,arch=x64 \
+            --install "$SETUP" os=windows,arch=x64,audience=user
           python scripts/host/relkit_host.py release --execute
           echo "published cronkit ${VERSION} → ${CHANNEL}"
