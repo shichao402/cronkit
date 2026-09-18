@@ -186,8 +186,9 @@ def _impl_build_release_lock(
 
     Constructing instead of patching is what lets a relkit.consume/1 repo run
     upgrade directly: every pinned value is restated by the release, so the old
-    lock's shape is never a precondition. Only the updater IPC window carries
-    over, because no release attachment declares it.
+    lock's shape is never a precondition. The updater IPC window comes from
+    the release manifest (`minUpdaterIpc` / `maxUpdaterIpc`); older releases
+    that omit those fields fall back to UPDATER_IPC_FALLBACK.
     """
     artifacts: dict[str, Any] = {}
     rewrite_lock_artifacts(artifacts, base, sums)
@@ -204,7 +205,13 @@ def _impl_build_release_lock(
             },
             PUBLISH_PROTOCOL_FALLBACK,
         ),
-        "updaterIpc": int_window(previous.get("updaterIpc"), UPDATER_IPC_FALLBACK),
+        "updaterIpc": int_window(
+            {
+                "min": manifest.get("minUpdaterIpc"),
+                "max": manifest.get("maxUpdaterIpc"),
+            },
+            UPDATER_IPC_FALLBACK,
+        ),
         "artifacts": artifacts,
     }
 
@@ -624,14 +631,14 @@ def _impl_cmd_fake_verify(root: Path, version: Optional[str]) -> int:
     print(f"verified fake.release={resolved}")
     return 0
 
-def _impl_serve_token_path(
-    config_dir: str, product: str, share_with: Optional[str] = None
-) -> str:
-    """On-disk token after init. -share-with keeps the existing owner's file."""
-    owner = (share_with or product or "").strip()
-    if not owner:
-        raise Fail("token owner product id is required")
-    return str(Path(config_dir) / "tokens" / f"{owner}.token").replace("\\", "/")
+def _impl_serve_token_path(config_dir: str, rel: str) -> str:
+    """Absolute path for a token file taken from init -list-products."""
+    rel = (rel or "").strip()
+    if not rel:
+        raise Fail("token file path is empty")
+    if rel.startswith("/"):
+        return rel
+    return str(Path(config_dir) / rel).replace("\\", "/")
 
 def _impl_cmd_keys_gen(root: Path, args: argparse.Namespace) -> int:
     require_execute(args, "keys gen")
@@ -686,12 +693,12 @@ def _impl_stage_dummy_release(root: Path, version: str, binary: Path) -> None:
         [
             "stage",
             version,
-            "--add",
+            "--install",
             str(windows),
-            "os=windows,arch=x64,meta.layout=wholeRoot",
-            "--add",
+            "os=windows,arch=x64",
+            "--install",
             str(macos),
-            "os=macos,meta.layout=wholeRoot",
+            "os=macos",
         ],
     )
 

@@ -94,6 +94,8 @@ from hostlib.inspect import (
     inventory_path,
     ops_journal_path,
     onboarding_ignored,
+    upstream_latest_release,
+    lock_currency,
     env_inspect_report,
     print_env_inspect,
     apply_env_inspect,
@@ -144,11 +146,17 @@ from hostlib.reconcile import (
 from hostlib.remote import (
     ssh_path_exists,
     agent_profile_path,
-    rewrite_agent_backend_url,
-    apply_agent_backend_urls,
+    agent_upload_url,
+    to_agent_backend,
+    read_agent_profile,
     extract_publish_profile,
     machine_publish_config,
     parse_list_products,
+    parse_product_token_files,
+    token_file_abs,
+    listed_product_token_path,
+    list_serve_products,
+    list_agent_products,
     publish_topology,
     _version_tuple,
     remote_inventory,
@@ -161,7 +169,9 @@ from hostlib.remote import (
     relkit_bin,
     cmd_status,
     agent_token_path,
+    chown_token_file,
     chown_serve_product_token,
+    chown_agent_product_token,
     cmd_serve_list,
     cmd_serve_add,
     cmd_serve_restart,
@@ -212,6 +222,7 @@ from hostlib.retrospect import (
     _retrospect_skill_paths,
     _retrospect_item,
     retrospect_report,
+    cmd_retrospect_note,
     classify_ops_journal,
     _retrospect_line,
     retrospect_failures,
@@ -273,6 +284,15 @@ def build_parser() -> argparse.ArgumentParser:
         "retrospect", help="run the final non-interactive ops consistency gate"
     )
     retrospect.add_argument("--json", action="store_true")
+    retrospect_sub = retrospect.add_subparsers(dest="retrospect_cmd")
+    retrospect_note = retrospect_sub.add_parser(
+        "note", help="record a conversation finding the mechanical gate cannot see"
+    )
+    retrospect_note.add_argument("--code", required=True)
+    retrospect_note.add_argument(
+        "--class", dest="note_class", required=True, choices=list(RETROSPECT_NOTE_CLASSES)
+    )
+    retrospect_note.add_argument("--text", required=True)
     upgrade = sub.add_parser("upgrade", help="rewrite lock to a GitHub release and install")
     upgrade.add_argument("release")
 
@@ -395,6 +415,8 @@ def dispatch(root: Path, args: argparse.Namespace) -> int:
     if args.cmd == "sidecar":
         return cmd_sidecar_universal(root, Path(args.out))
     if args.cmd == "retrospect":
+        if getattr(args, "retrospect_cmd", None) == "note":
+            return cmd_retrospect_note(root, args.code, args.note_class, args.text)
         return cmd_retrospect(root, args.json)
     if args.cmd == "upgrade":
         return cmd_upgrade(root, args.release)
