@@ -15,7 +15,7 @@ import { fileURLToPath } from "node:url";
 import { create, fromBinary, toBinary } from "@bufbuild/protobuf";
 import {
   ClientProfileSchema,
-  Layout,
+  Placement,
   RuntimeSchema,
   UpdaterEventSchema,
   UpdaterRequestSchema,
@@ -153,16 +153,16 @@ function makeRequest(overrides = {}) {
     dataDir: staging,
     sidecarPath: sidecar,
     install: {
-      layout: Layout.VERSIONED_DIR,
+      placement: Placement.LIBRARY,
       installRoot: staging,
       executableRelpath: "WorkspaceOrchestrator.exe",
       sidecarRelpath: "relkit-updater.exe",
-      retain: 2,
       relaunch: false,
+      library: { retain: 2 },
     },
   });
   return create(UpdaterRequestSchema, {
-    hello: { ipcMin: 1, ipcMax: 1 },
+    hello: { ipcMin: 3, ipcMax: 3 },
     profile,
     runtime,
     op: { case: "check", value: { force: overrides.force ?? true } },

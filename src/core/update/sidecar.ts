@@ -36,8 +36,8 @@ export {
   type CheckResult,
   type UpdaterEvent,
 } from "@relkit/updater-bindings/updater/v1";
-export const IPC_MIN = 1;
-export const IPC_MAX = 1;
+export const IPC_MIN = 3;
+export const IPC_MAX = 3;
 const MAX_FRAME = 32 << 20;
 
 export type Glue = {

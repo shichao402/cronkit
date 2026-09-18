@@ -2,7 +2,7 @@ import { Buffer } from "node:buffer";
 import { create } from "@bufbuild/protobuf";
 import {
   ClientProfileSchema,
-  Layout,
+  Placement,
   RuntimeSchema,
   type ClientProfile,
   type Runtime,
@@ -43,12 +43,12 @@ export function buildRuntime(options: {
     dataDir: options.dataDir,
     sidecarPath: options.sidecarPath ?? "",
     install: {
-      layout: Layout.VERSIONED_DIR,
+      placement: Placement.LIBRARY,
       installRoot,
       executableRelpath: UPDATE_EXECUTABLE,
       sidecarRelpath: UPDATE_SIDECAR,
-      retain: UPDATE_RETAIN_VERSIONS,
       relaunch: true,
+      library: { retain: UPDATE_RETAIN_VERSIONS },
     },
   });
 }

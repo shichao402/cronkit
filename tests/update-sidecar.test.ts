@@ -49,7 +49,7 @@ describe("sidecar facade", () => {
 
   it("maps a check event onto the protobuf result", async () => {
     const glue = new ScriptedGlue([
-      [create(UpdaterEventSchema, { kind: { case: "capabilities", value: { ipc: 1 } } })],
+      [create(UpdaterEventSchema, { kind: { case: "capabilities", value: { ipc: IPC_MIN } } })],
       [
         create(UpdaterEventSchema, {
           kind: {
