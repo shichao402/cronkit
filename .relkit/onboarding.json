@@ -35,7 +35,7 @@
     "ssh.host": {
       "status": "verified",
       "value": "cvm-gz",
-      "note": "cvm-gz:22 (ssh default) relkit-serve 0.4.18+bdef6930c041"
+      "note": "cvm-gz:22 (ssh default) relkit-serve 0.4.19+6a211317fb55"
     },
     "ssh.config_dir": {
       "status": "verified",
@@ -64,8 +64,8 @@
     },
     "consume.lock": {
       "status": "verified",
-      "value": "v0.4.18",
-      "note": "lock installed"
+      "value": "v0.4.19",
+      "note": "lock present"
     },
     "sidecar.layout": {
       "status": "verified",
@@ -93,13 +93,13 @@
     "sshPort": null,
     "configDir": "/etc/relkit-serve",
     "shareWith": null,
-    "remoteVersion": "relkit-serve 0.4.18+bdef6930c041"
+    "remoteVersion": "relkit-serve 0.4.19+6a211317fb55"
   },
   "agent": {
     "sshHost": null,
     "sshPort": null,
     "configPath": "/etc/relkit-agent/relkit-agent.json",
-    "remoteVersion": "relkit-agent 0.4.18+bdef6930c041"
+    "remoteVersion": "relkit-agent 0.4.19+6a211317fb55"
   },
   "root": "D:\\workspace\\GitHub\\cronkit"
 }
