@@ -85,7 +85,7 @@
     "ops.retrospect": {
       "status": "stale",
       "value": "relkit_host.py retrospect",
-      "note": "session finding publish-channel-no-client-consumer is undigested"
+      "note": "session finding concurrent-dual-channel-cas-put is undigested"
     }
   },
   "serve": {
