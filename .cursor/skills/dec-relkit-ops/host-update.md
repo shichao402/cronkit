@@ -1,5 +1,5 @@
-<!-- 本文件由 `dec pull` 从 .dec/cache/relkit/ 渲染生成，请勿直接编辑。
-     修改流程：编辑 .dec/cache/relkit/... → 在 Run 页 push → pull 验证 -->
+<!-- 本文件由 `dec pull` 从 Dec registry 的 relkit/ 渲染生成，请勿直接编辑。
+     官方资产由提供方 CI 发布；临时改动用 Console「本地覆写」。禁止 Run 页 push / dec_push -->
 
 # 宿主接入合同（语言无关）
 
