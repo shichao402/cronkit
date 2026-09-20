@@ -13,10 +13,11 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { version } = JSON.parse(readFileSync(path.join(root, "VERSION.json"), "utf8"));
 
-execFileSync(process.platform === "win32" ? "npm.cmd" : "npm", ["run", "dist"], {
-  cwd: root,
-  stdio: "inherit",
-});
+const npmCommand =
+  process.platform === "win32"
+    ? [process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", "npm run dist"]]
+    : ["npm", ["run", "dist"]];
+execFileSync(npmCommand[0], npmCommand[1], { cwd: root, stdio: "inherit" });
 
 const relativeSetup = `dist/cronkit-${version}-win-x64-setup.exe`;
 const relativeZip = `dist/cronkit-${version}-win-x64.zip`;
