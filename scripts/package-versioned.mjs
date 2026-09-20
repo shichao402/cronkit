@@ -9,6 +9,10 @@
  *     versions/<version>/...     (Electron 应用)
  *   dist/cronkit-<version>-win-x64-setup.exe
  *     同上树的 NSIS 首次安装包（selectors 带 audience=user）
+ *   <buildOutputDir>/versioned/versions/<version>/
+ *     内部更新轨的 payload 输入树，由 CI `relkit stage --payload` 打包。
+ *     LIBRARY 落点把 payload 文件表写进 versions/<version>/，所以这棵树
+ *     就是版本目录本身，不含 launcher 与 active.json。
  */
 
 import { execFileSync } from "node:child_process";
@@ -69,11 +73,15 @@ run(
 );
 
 const bundleDir = path.join(buildOutputDir, "versioned");
+const versionDir = path.join(bundleDir, "versions", version);
 rmSync(bundleDir, { recursive: true, force: true });
 mkdirSync(path.join(bundleDir, "versions"), { recursive: true });
-cpSync(unpackedDir, path.join(bundleDir, "versions", version), { recursive: true });
+cpSync(unpackedDir, versionDir, { recursive: true });
 copyFileSync(launcher, path.join(bundleDir, "WorkspaceOrchestrator.exe"));
 copyFileSync(sidecar, path.join(bundleDir, "relkit-updater.exe"));
+// 版本目录里也放一份 sidecar：apply 完成后 relkit-updater 会从 payload 里取
+// sidecarRelpath 刷新安装根的自己，缺这份就只能靠完整安装包换 sidecar。
+copyFileSync(sidecar, path.join(versionDir, "relkit-updater.exe"));
 writeFileSync(
   path.join(bundleDir, "active.json"),
   `${JSON.stringify(
@@ -98,6 +106,7 @@ console.log(`versionedDir artifact: ${artifact}`);
 const setup = path.join(artifactOutputDir, `cronkit-${version}-win-x64-setup.exe`);
 buildNsisInstaller({ version, bundleDir, setup });
 console.log(`nsis installer: ${setup}`);
+console.log(`payload tree: ${versionDir}`);
 
 /**
  * 用本机 makensis 把 versionedDir 打成首次安装用的 setup.exe。

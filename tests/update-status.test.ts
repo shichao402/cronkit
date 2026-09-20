@@ -23,6 +23,7 @@ function target(overrides: Partial<UpdateTargetInfo> = {}): UpdateTargetInfo {
     mandatory: false,
     remainingHops: 1,
     isFinalHop: true,
+    requiresFullInstall: false,
     releaseNotes: "",
     releaseNotesUrl: "",
     sizeBytes: 1024,
@@ -70,6 +71,14 @@ describe("install gating", () => {
       "有任务正在运行，等它结束后再安装",
     );
     expect(installBlockedReason(status({ phase: "ready" }), false)).toBeNull();
+  });
+
+  // 只发 --install 的版本会让 sidecar 以 LAYOUT_UNSUPPORTED 拒绝 apply，
+  // 宿主必须自己先拦住，否则点「安装并重启」看起来毫无反应。
+  it("refuses to apply a full-install-only build", () => {
+    const ready = status({ phase: "ready", target: target({ requiresFullInstall: true }) });
+    expect(installBlockedReason(ready, false)).toBe("这个版本只发了完整安装包，请下载后手动安装");
+    expect(canInstallNow(ready, false)).toBe(false);
   });
 });
 

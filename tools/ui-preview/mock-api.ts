@@ -255,6 +255,7 @@ const updateTarget: UpdateTargetInfo = {
   mandatory: scenario === "update-mandatory",
   remainingHops: scenario === "update-chain" ? 2 : 1,
   isFinalHop: scenario !== "update-chain",
+  requiresFullInstall: false,
   releaseNotes:
     "- 新增更新检查与下载\n- 修复 Windows 上断点续传预分配失败\n- 托盘菜单可直接查看更新状态",
   releaseNotesUrl: "",

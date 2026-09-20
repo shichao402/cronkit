@@ -135,6 +135,7 @@ jobs:
           CLI=./tools/bin/relkit.exe
           ZIP="dist/cronkit-${VERSION}-win-x64.zip"
           SETUP="dist/cronkit-${VERSION}-win-x64-setup.exe"
+          PAYLOAD=".release/versioned/versions/${VERSION}"
           if [ ! -f "$ZIP" ]; then
             echo "缺少产物 $ZIP"
             ls -l dist/ || true
@@ -145,8 +146,16 @@ jobs:
             ls -l dist/ || true
             exit 1
           fi
+          if [ ! -d "$PAYLOAD" ]; then
+            echo "缺少内部更新轨输入树 $PAYLOAD"
+            ls -l .release/versioned/versions/ || true
+            exit 1
+          fi
+          # payload 的 selectors 必须与同组完整安装包逐字一致（apply 键由 relkit 注入），
+          # 否则只发 payload 会被 stage 拒绝，而客户端只会拿到 FULL_INSTALL。
           "$CLI" stage "$VERSION" --channel "$CHANNEL" \
             --install "$ZIP" os=windows,arch=x64 \
-            --install "$SETUP" os=windows,arch=x64,audience=user
+            --install "$SETUP" os=windows,arch=x64,audience=user \
+            --payload "$PAYLOAD" os=windows,arch=x64
           python scripts/host/relkit_host.py release --execute
           echo "published cronkit ${VERSION} → ${CHANNEL}"

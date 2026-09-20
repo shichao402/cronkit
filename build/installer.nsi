@@ -32,9 +32,11 @@ ManifestDPIAware True
 
 Name "${PRODUCT_NAME}"
 OutFile "${OUTFILE}"
-InstallDir "$PROGRAMFILES64\${PRODUCT_ID}"
-InstallDirRegKey HKLM "Software\${PRODUCT_ID}" "InstallDir"
-RequestExecutionLevel admin
+; 按用户安装：relkit-updater 不做 UAC 提权，装进 Program Files 后
+; 托盘程序就没有写 versions/ 的权限，内部更新只会以「安装根不可写」告败。
+InstallDir "$LOCALAPPDATA\Programs\${PRODUCT_ID}"
+InstallDirRegKey HKCU "Software\${PRODUCT_ID}" "InstallDir"
+RequestExecutionLevel user
 SetCompressor /SOLID lzma
 ShowInstDetails show
 ShowUnInstDetails show
@@ -83,11 +85,13 @@ Var StartMenuFolder
 !macroend
 
 Function .onInit
+  SetShellVarContext current
   StrCpy $StartMenuFolder "${PRODUCT_NAME}"
   !insertmacro AssertAppNotRunning
 FunctionEnd
 
 Function un.onInit
+  SetShellVarContext current
   !insertmacro AssertAppNotRunning
 FunctionEnd
 
@@ -101,30 +105,30 @@ Section "Install"
   SetOutPath "$INSTDIR"
   File /r "${SRCDIR}\*.*"
 
-  WriteRegStr HKLM "Software\${PRODUCT_ID}" "InstallDir" "$INSTDIR"
-  WriteRegStr HKLM "Software\${PRODUCT_ID}" "Version" "${VERSION}"
+  WriteRegStr HKCU "Software\${PRODUCT_ID}" "InstallDir" "$INSTDIR"
+  WriteRegStr HKCU "Software\${PRODUCT_ID}" "Version" "${VERSION}"
 
   WriteUninstaller "$INSTDIR\Uninstall.exe"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
     "DisplayName" "${PRODUCT_NAME}"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
     "DisplayVersion" "${VERSION}"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
     "Publisher" "${PUBLISHER}"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
     "InstallLocation" "$INSTDIR"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
     "DisplayIcon" "$INSTDIR\${EXE_NAME}"
-  WriteRegStr HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
+  WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
     "UninstallString" '"$INSTDIR\Uninstall.exe"'
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
     "NoModify" 1
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
     "NoRepair" 1
 
   ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
   IntFmt $0 "0x%08X" $0
-  WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
+  WriteRegDWORD HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}" \
     "EstimatedSize" "$0"
 
   CreateDirectory "$SMPROGRAMS\$StartMenuFolder"
@@ -138,7 +142,7 @@ SectionEnd
 Section "Uninstall"
   Delete "$DESKTOP\${PRODUCT_NAME}.lnk"
   RMDir /r "$SMPROGRAMS\$StartMenuFolder"
-  DeleteRegKey HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}"
-  DeleteRegKey HKLM "Software\${PRODUCT_ID}"
+  DeleteRegKey HKCU "Software\Microsoft\Windows\CurrentVersion\Uninstall\${PRODUCT_ID}"
+  DeleteRegKey HKCU "Software\${PRODUCT_ID}"
   RMDir /r "$INSTDIR"
 SectionEnd

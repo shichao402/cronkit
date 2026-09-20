@@ -41,6 +41,8 @@ export type UpdateTargetInfo = {
   /** 距离最新版还差几跳，>1 说明升级链要求中间版本。 */
   remainingHops: number;
   isFinalHop: boolean;
+  /** 选中的是完整安装轨：sidecar 不会 apply，只能走平台安装流程。 */
+  requiresFullInstall: boolean;
   releaseNotes: string;
   releaseNotesUrl: string;
   sizeBytes: number;
@@ -90,7 +92,7 @@ export function isBusy(status: UpdateStatus): boolean {
  * 任务跑一半被换掉目录，轻则任务失败，重则留下半新半旧的安装。
  */
 export function canInstallNow(status: UpdateStatus, hasRunningTasks: boolean): boolean {
-  return status.phase === "ready" && !hasRunningTasks;
+  return installBlockedReason(status, hasRunningTasks) === null;
 }
 
 /** 阻止安装的原因，`null` 表示可以装。 */
@@ -103,6 +105,11 @@ export function installBlockedReason(
   }
   if (hasRunningTasks) {
     return "有任务正在运行，等它结束后再安装";
+  }
+  // 发布方没给这一组 selectors 发内部更新包时 sidecar 会拒绝 apply，
+  // 与其让它报协议错，不如直接把用户引到完整安装包。
+  if (status.target?.requiresFullInstall) {
+    return "这个版本只发了完整安装包，请下载后手动安装";
   }
   return null;
 }

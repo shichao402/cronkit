@@ -10,7 +10,7 @@ import { app, dialog, Notification, shell } from "electron";
 import { existsSync } from "node:fs";
 import { timestampDate } from "@bufbuild/protobuf/wkt";
 import type { CheckResult, UpdateAvailable } from "@relkit/updater-bindings/updater/v1";
-import { SessionPhase } from "@relkit/updater-bindings/updater/v1";
+import { ApplyDisposition, SessionPhase } from "@relkit/updater-bindings/updater/v1";
 import { resolveInstallDir, updaterPath } from "../core/update/apply";
 import { CheckLoop } from "../core/update/check-loop";
 import { CURRENT_VERSION_LABEL } from "../core/update/config";
@@ -240,9 +240,9 @@ export class UpdateService {
   }
 
   async revealDownload(): Promise<{ ok: boolean; error?: string }> {
-    const blocked = installBlockedReason(this.status, this.options.hasRunningTasks());
-    if (blocked) {
-      return { ok: false, error: blocked };
+    // 只认「下载完了」。安装闸门不适用：只发完整安装包时，打开目录正是那条退路。
+    if (this.status.phase !== "ready") {
+      return { ok: false, error: "还没有已下载完成的更新" };
     }
     shell.showItemInFolder(this.options.dataDir);
     return { ok: true };
@@ -433,6 +433,7 @@ function toTargetInfo(available: UpdateAvailable): UpdateTargetInfo {
     mandatory: available.mandatory,
     remainingHops: available.remainingHops,
     isFinalHop: available.remainingHops <= 1,
+    requiresFullInstall: available.applyDisposition === ApplyDisposition.FULL_INSTALL,
     releaseNotes: available.releaseNotesMarkdown,
     releaseNotesUrl: available.releaseNotesUrl,
     sizeBytes: artifact ? Number(artifact.size) : 0,

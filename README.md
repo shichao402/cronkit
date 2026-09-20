@@ -50,8 +50,13 @@ npm run dist
 产物：
 
 - `dist\cronkit-<version>-win-x64.zip`：versionedDir 发布包（稳定 launcher、
-  `relkit-updater.exe`、`active.json`、`versions/<version>/`），供自动更新。
+  `relkit-updater.exe`、`active.json`、`versions/<version>/`），完整安装轨。
 - `dist\cronkit-<version>-win-x64-setup.exe`：NSIS 首次安装包，安装树与 zip 同源。
+  按用户安装到 `%LOCALAPPDATA%\Programs\cronkit`：`relkit-updater` 不提权，装进
+  Program Files 就没有写 `versions/` 的权限，内部更新会直接失败。
+- `.release\versioned\versions\<version>\`：内部更新轨的 payload 输入树，CI 用
+  `relkit stage --payload` 打包。缺这一轨时客户端只会拿到 `FULL_INSTALL`，
+  「安装并重启」会被 sidecar 拒绝。
 
 `.release\win-unpacked` 只是被忽略的构建中间目录，不能直接发布。
 本地需要已安装 [NSIS 3](https://nsis.sourceforge.io/)（`makensis` 在 PATH，或设 `MAKENSIS`）。
