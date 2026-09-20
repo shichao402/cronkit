@@ -35,7 +35,7 @@
     "ssh.host": {
       "status": "verified",
       "value": "cvm-gz",
-      "note": "cvm-gz:22 (ssh default) relkit-serve 0.4.13+4a186d2eadd4"
+      "note": "cvm-gz:22 (ssh default) relkit-serve 0.4.14+4a10a42c0f6b"
     },
     "ssh.config_dir": {
       "status": "verified",
@@ -64,7 +64,7 @@
     },
     "consume.lock": {
       "status": "verified",
-      "value": "v0.4.13",
+      "value": "v0.4.14",
       "note": "lock present"
     },
     "sidecar.layout": {
@@ -83,9 +83,9 @@
       "note": "GitHub Actions publishes lock-pinned relkit artifacts; token stays in CI secrets"
     },
     "ops.retrospect": {
-      "status": "stale",
+      "status": "verified",
       "value": "relkit_host.py retrospect",
-      "note": "session finding windows-install-root-unwritable is undigested"
+      "note": "mechanical ops checks passed"
     }
   },
   "serve": {
@@ -93,13 +93,13 @@
     "sshPort": null,
     "configDir": "/etc/relkit-serve",
     "shareWith": null,
-    "remoteVersion": "relkit-serve 0.4.13+4a186d2eadd4"
+    "remoteVersion": "relkit-serve 0.4.14+4a10a42c0f6b"
   },
   "agent": {
     "sshHost": null,
     "sshPort": null,
     "configPath": "/etc/relkit-agent/relkit-agent.json",
-    "remoteVersion": "relkit-agent 0.4.13+4a186d2eadd4"
+    "remoteVersion": "relkit-agent 0.4.14+4a10a42c0f6b"
   },
   "root": "D:\\workspace\\GitHub\\cronkit"
 }

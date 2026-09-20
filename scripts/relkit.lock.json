@@ -1,9 +1,9 @@
 {
   "schema": "relkit.consume/2",
-  "release": "v0.4.13",
-  "commit": "4a186d2eadd4f182e71e90f264e505ce536d5791",
+  "release": "v0.4.14",
+  "commit": "4a10a42c0f6b1a87a59f3cdd96c282b0eea38ae2",
   "consumerSha256": "afc5cb59d42b211d8d331c0c80bc3671b7a38aac241faeae4ef41c9a98967937",
-  "hostScriptsSha256": "76d0862a5bf8e2c03b0c9de36cbfa35ea82b1f24cf27956f274a70be934544b6",
+  "hostScriptsSha256": "ed134e5edbffe2af67c8110bd71777e284db9f87d298945ddc7f642472094179",
   "protocol": {
     "min": 2,
     "max": 2
@@ -14,67 +14,67 @@
   },
   "artifacts": {
     "host-scripts": {
-      "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-host-scripts.zip",
-      "sha256": "6189422f4936a2126c5d33108035461c6ad47915184f00a7c3c4ae0fcd344f75"
+      "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-host-scripts.zip",
+      "sha256": "0fd60aa7785b9202e94775568d68190e777e2cdc0404a0317ad11c1b9d956401"
     },
     "sdk-dart": {
-      "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-sdk-dart.zip",
+      "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-sdk-dart.zip",
       "sha256": "0e5e1197eb7fc8b55ee02638dd88529824040717c6a3928016dc93bdb6d6f5d8"
     },
     "sdk-go": {
-      "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-sdk-go.zip",
+      "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-sdk-go.zip",
       "sha256": "ad00082663b1794a075d131029e92ba12a9059ae64e1ee39b12bde51642539a7"
     },
     "sdk-rust": {
-      "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-sdk-rust.zip",
+      "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-sdk-rust.zip",
       "sha256": "f78e6c30dd39662f7ab37a967f7f684079ec0410c2f4c8fc96c95c8140865623"
     },
     "bindings-ts": {
-      "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-bindings-ts.zip",
+      "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-bindings-ts.zip",
       "sha256": "2de756f3c6c9c0fda2ebe9718ba716dad4d5e1f89ebe0709226efadbf941dea4"
     },
     "cli": {
       "linux-amd64": {
-        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-linux-amd64",
-        "sha256": "f7c3103630728fb14c6dc2d129f6466f60fadc566508e590656aab9ba358ca79"
+        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-linux-amd64",
+        "sha256": "09d059c83f00b4a9aae6d650dbf3366d046fa629c1357a19a6a30307bbeb1540"
       },
       "linux-arm64": {
-        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-linux-arm64",
-        "sha256": "30429eacf235b1a499c28f086908270e3565a023d57478f012ac8487d7b8e251"
+        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-linux-arm64",
+        "sha256": "8af9ac8e2033c44ddc0a83f895a4e37ad9ac5a55f542abe88a59c298fdbe25f4"
       },
       "windows-amd64": {
-        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-windows-amd64.exe",
-        "sha256": "e7d1990b6f9339a9fd8371b19143bd5037643e8eaeee9499cf081307fe010aaf"
+        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-windows-amd64.exe",
+        "sha256": "0cbbd5e496713dbf4f988e50195bb1d959c8c99fcaed6c0939d142ba4c8831e9"
       },
       "darwin-amd64": {
-        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-darwin-amd64",
-        "sha256": "2c505f5fb8d13fcfb415d843404e1b25e7176872ef698e7d7f76f942ab10c6c5"
+        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-darwin-amd64",
+        "sha256": "ff5e77fc28a1a82323c3d61a4f0ccbed51c63361757b92a2c1bfe8763c90978a"
       },
       "darwin-arm64": {
-        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-darwin-arm64",
-        "sha256": "da104f090ff279639a181e3a4379a902432f6dd7d0c4edfe0ccb842c59fe9e68"
+        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-darwin-arm64",
+        "sha256": "132cd7337a60e940ae681238205793d5d148c60938e7a8f18897bfc02244d0b3"
       }
     },
     "updater": {
       "linux-amd64": {
-        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-updater-linux-amd64",
-        "sha256": "24767ae442cf9f17cef76d7eab27fd7fcc7e0cf1d866352552191498d23fb7d5"
+        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-updater-linux-amd64",
+        "sha256": "938c5169c901cfcbc6d9ccda780522fb98dba3ecca66218b6d583aba8269fc84"
       },
       "linux-arm64": {
-        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-updater-linux-arm64",
-        "sha256": "1583711b8666e3fc95ea57b5249666358eb1ec5d29eb019c60d5d64b42ed23a1"
+        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-updater-linux-arm64",
+        "sha256": "2463bab98ec97fc0752d24906253fd2fadba0b02a4d34af9d644aced53041ec2"
       },
       "windows-amd64": {
-        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-updater-windows-amd64.exe",
-        "sha256": "8588769bd28d94c4beeff2595164442ca29a6e7f3c6b44187ce26a58760cb2a6"
+        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-updater-windows-amd64.exe",
+        "sha256": "ab61993d7b892122d307048730247eb8ea764b3fc321271aed9b8a06045d6673"
       },
       "darwin-amd64": {
-        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-updater-darwin-amd64",
-        "sha256": "24a04617be2d8f425433ad5218fdfc4e6daf2d41b0d6033cc148f214c6664c0f"
+        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-updater-darwin-amd64",
+        "sha256": "f98ccc83af085ba6c9de203bf1db5270360b18eea699d917eb5583acc57d938f"
       },
       "darwin-arm64": {
-        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.13/relkit-updater-darwin-arm64",
-        "sha256": "815da48dab3f1ca3ab65ad07279d49e9f7b4be918c8be32d599643ffacb39c47"
+        "url": "https://github.com/shichao402/relkit/releases/download/v0.4.14/relkit-updater-darwin-arm64",
+        "sha256": "1bb17221153f8fff31145e7ff00fa96d40080a42f44ef4c009ece9a159df02d2"
       }
     }
   }
