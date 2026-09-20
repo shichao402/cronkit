@@ -182,6 +182,12 @@ DIGESTED_ISSUE_CODES = frozenset(
         "retrospect-note-code-invalid",
         "retrospect-note-class-invalid",
         "retrospect-note-text-missing",
+        "consume-stale-proto-shadow",
+        "ci-zip-as-full-install",
+        "host-ignore-full-install-disposition",
+        "lock-latest-cache-stale",
+        "dec-publish-not-in-ci",
+        "dec-skill-header-push-route",
     }
 )
 
