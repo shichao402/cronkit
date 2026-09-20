@@ -50,10 +50,19 @@ def _impl_detect_stack(root: Path) -> dict[str, Any]:
     seen: set[str] = set()
     for row in registry_components("product-tree"):
         for pattern in row.detect:
-            for path in root.glob(pattern):
-                if not path.is_file():
+            try:
+                matches = list(root.glob(pattern))
+            except OSError:
+                # Windows CI may race-delete junctions under node_modules while
+                # pathlib walks; treat that as "no match" instead of aborting install.
+                continue
+            for path in matches:
+                try:
+                    if not path.is_file():
+                        continue
+                    relative = path.relative_to(root)
+                except OSError:
                     continue
-                relative = path.relative_to(root)
                 if any(part in skip for part in relative.parts):
                     continue
                 posix = relative.as_posix()
@@ -99,7 +108,7 @@ def _impl_recommendations(root: Path, state: dict[str, Any]) -> dict[str, str]:
         "consume.lock": "relkit_host.py install after scripts/relkit.lock.json is pinned",
         "sidecar.layout": "tools/bin updater sidecar next to the process that calls Updater.open",
         "fake.release": "relkit_host.py fake verify (stages dummy zip, then simulate)",
-        "pack.ci": "product packaging + CI calling this script's release --execute",
+        "pack.ci": "product packScript + CI calling relkit_host.py ci release --execute",
         "ops.retrospect": "run relkit_host.py retrospect and require exit code 0",
     }
 

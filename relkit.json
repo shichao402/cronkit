@@ -13,10 +13,13 @@
   "agent": {
     "url": "https://publish.firoyang.com/v1/"
   },
+  "release": {
+    "packScript": "scripts/package-release.mjs"
+  },
   "defaultChannel": "stable",
   "channels": [
     "stable",
-    "beta"
+    "dev"
   ],
   "codeStrategy": "version-build",
   "backends": {
@@ -50,11 +53,11 @@
         "fallbackUrl": "https://raw.firoyang.com/rup/fallback/cronkit/stable.pb"
       },
       {
-        "id": "cos-guangzhou-beta",
+        "id": "cos-guangzhou-dev",
         "priority": 0,
-        "channel": "beta",
-        "indexUrl": "https://raw.firoyang.com/rup/index/cronkit/beta.pb",
-        "fallbackUrl": "https://raw.firoyang.com/rup/fallback/cronkit/beta.pb"
+        "channel": "dev",
+        "indexUrl": "https://raw.firoyang.com/rup/index/cronkit/dev.pb",
+        "fallbackUrl": "https://raw.firoyang.com/rup/fallback/cronkit/dev.pb"
       }
     ]
   },

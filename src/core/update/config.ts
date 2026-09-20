@@ -10,7 +10,7 @@ import { APP_VERSION_CODE, APP_VERSION_FULL } from "../../generated/version";
 /** relkit 侧的 product id，改名等于断更，禁止随意修改。 */
 export const UPDATE_PRODUCT = "cronkit";
 
-/** 默认通道。relkit.json 里同时登记了 beta，但客户端首版只走 stable。 */
+/** 默认通道。relkit.json 里同时登记了 dev，但客户端首版只走 stable。 */
 export const UPDATE_CHANNEL = "stable";
 
 /**

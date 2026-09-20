@@ -78,16 +78,16 @@ npm run sync-version
 git commit -am "chore(release): 0.1.0+2" && git push
 
 :: 2. 打渠道 tag 触发发布
-git tag beta/v0.1.0+2 && git push origin beta/v0.1.0+2
+git tag dev/v0.1.0+2 && git push origin dev/v0.1.0+2
 ```
 
-`beta/v*` 进 beta 渠道，`stable/v*` 进 stable。tag 里的版本必须与 `VERSION.json`
+`dev/v*` 进 dev 渠道，`stable/v*` 进 stable。tag 里的版本必须与 `VERSION.json`
 完全一致，否则流水线在第一步就失败。
 
 生产拓扑固定为：
 
 ```text
-GitHub Actions：build + relkit stage（只持 cronkit 专属 RELKIT_UPLOAD_TOKEN）
+GitHub Actions：relkit ci release（只持 cronkit 专属 RELKIT_UPLOAD_TOKEN）
   → publish.firoyang.com / relkit-agent：持签名私钥与 COS 凭据并执行 publish
   → raw.firoyang.com / COS：客户端匿名只读
 ```

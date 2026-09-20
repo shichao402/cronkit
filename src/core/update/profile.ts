@@ -20,7 +20,7 @@ import {
 export function buildClientProfile(): ClientProfile {
   return create(ClientProfileSchema, {
     product: UPDATE_PRODUCT,
-    allowedChannels: ["stable", "beta"],
+    allowedChannels: ["stable", "dev"],
     entryUrls: [...UPDATE_ENTRY_URLS],
     trustedKeys: Object.entries(UPDATE_TRUSTED_KEYS).map(([keyId, publicKeyBase64]) => ({
       keyId,
