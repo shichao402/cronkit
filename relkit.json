@@ -32,32 +32,37 @@
       "baseUrl": "https://raw.firoyang.com/rup/",
       "accessKeyEnv": "COS_SECRET_ID",
       "secretKeyEnv": "COS_SECRET_KEY"
+    },
+    "serve": {
+      "type": "relkit-compatible",
+      "baseUrl": "https://publish.firoyang.com/",
+      "uploadUrl": "https://publish.firoyang.com/",
+      "tokenEnv": "RELKIT_SERVE_TOKEN",
+      "timeoutSeconds": 600
     }
   },
   "publishTo": [
-    "cos"
+    "serve"
   ],
   "directory": {
     "publishTo": [
-      "cos"
+      "serve"
     ],
     "entryUrls": [
-      "https://raw.firoyang.com/rup/directory/cronkit.pb"
+      "https://publish.firoyang.com/directory/cronkit.pb"
     ],
     "services": [
       {
-        "id": "cos-guangzhou",
-        "priority": 0,
-        "channel": "stable",
-        "indexUrl": "https://raw.firoyang.com/rup/index/cronkit/stable.pb",
-        "fallbackUrl": "https://raw.firoyang.com/rup/fallback/cronkit/stable.pb"
+        "id": "publish-primary",
+        "priority": 10,
+        "indexUrl": "https://publish.firoyang.com/index/cronkit/stable.pb",
+        "channel": "stable"
       },
       {
-        "id": "cos-guangzhou-dev",
-        "priority": 0,
-        "channel": "dev",
-        "indexUrl": "https://raw.firoyang.com/rup/index/cronkit/dev.pb",
-        "fallbackUrl": "https://raw.firoyang.com/rup/fallback/cronkit/dev.pb"
+        "id": "publish-dev",
+        "priority": 10,
+        "indexUrl": "https://publish.firoyang.com/index/cronkit/dev.pb",
+        "channel": "dev"
       }
     ]
   },
