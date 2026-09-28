@@ -37,6 +37,9 @@ cronkit 当时按 ADR 0010 自研了进程内 `rup-client`，再按 ADR 0011 用
   缺 sidecar 则打包失败。开发态（未打包）不检查更新。
 - CI 先 `relkit_host.py install`，再 `stage`，再
   `RELKIT_RELEASE_VIA_CI=1 relkit_host.py release --execute`。
+  （2026-09-28 更新：ADR 0017 阶段 2b 起 Python 消费面退役，CI 入口与发布
+  尾段已全换 `go run github.com/shichao402/relkit/cmd/relkit@vX ci release
+  --execute`；本节描述的是当时的流程，作为历史保留。）
 
 ## 备选
 

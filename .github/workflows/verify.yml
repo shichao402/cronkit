@@ -1,5 +1,8 @@
 # 主干持续验证。不持发布密钥。
 # Windows 原生打 --win --dir，避免再依赖 CNB 的 wine 镜像。
+#
+# 2026-09-28 起（ADR 0017 阶段 2b）：lock 安装入口走 relkit Go CLI，
+# Python 消费面（scripts/host）已整体退役。
 
 name: Verify
 
@@ -19,10 +22,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -37,7 +36,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/host/relkit_host.py install
+          go run github.com/shichao402/relkit/cmd/relkit@v0.5.7 install
           npm ci
 
       - name: Checks

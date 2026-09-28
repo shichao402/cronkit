@@ -4,7 +4,14 @@
 # 推送前请先把 VERSION.json 改成对应版本并推到 main。
 # 密钥（仓库 Secrets）：
 #   RELKIT_UPLOAD_TOKEN（cronkit 专属上传凭据，必填）
+#   RELKIT_AGENT_URL（agent 地址，可写站点根或 /v1；默认 https://publish.firoyang.com/v1）
 # 手动触发：Actions → Release → Run workflow（按 VERSION.json，默认 channel=dev）
+#
+# 2026-09-28 起（ADR 0017 阶段 2b）：CI 入口与发布尾段全部走 relkit Go CLI
+# （`go run github.com/shichao402/relkit/cmd/relkit@v0.5.7`），Python 消费面
+# （scripts/host）已整体退役。编组（pack.mjs 产出 dist/release-artifacts.json
+# /1）+ stage + simulate + fake verify + cas-put + POST /publish 全在
+# `relkit ci release --execute` 进程内完成。
 
 name: Release
 
@@ -35,13 +42,9 @@ jobs:
     runs-on: windows-latest
     env:
       RELKIT_UPLOAD_TOKEN: ${{ secrets.RELKIT_UPLOAD_TOKEN }}
-      RELKIT_RELEASE_VIA_CI: "1"
+      RELKIT_AGENT_URL: ${{ secrets.RELKIT_AGENT_URL }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
 
       - uses: actions/setup-node@v4
         with:
@@ -100,7 +103,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python scripts/host/relkit_host.py install
+          go run github.com/shichao402/relkit/cmd/relkit@v0.5.7 install
           npm ci
 
       - name: Checks
@@ -118,11 +121,13 @@ jobs:
         shell: bash
         env:
           CHANNEL: ${{ steps.meta.outputs.channel }}
+          RELKIT_RELEASE_VIA_CI: "1"
+          RELKIT_PYTHON: python3
         run: |
           set -euo pipefail
           if [ -z "${RELKIT_UPLOAD_TOKEN:-}" ]; then
             echo "RELKIT_UPLOAD_TOKEN 未配置，无法发布"
             exit 1
           fi
-          python scripts/host/relkit_host.py ci release --channel "$CHANNEL" --execute
+          go run github.com/shichao402/relkit/cmd/relkit@v0.5.7 ci release --channel "$CHANNEL" --execute
           echo "published cronkit ${{ steps.meta.outputs.version }} → ${CHANNEL}"

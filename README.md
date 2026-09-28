@@ -15,7 +15,7 @@ npm start
 `npm install` 前需要 lock 钉住的 bindings：
 
 ```bat
-python scripts/host/relkit_host.py install
+go run github.com/shichao402/relkit/cmd/relkit@v0.5.7 install
 npm install
 npm start
 ```
