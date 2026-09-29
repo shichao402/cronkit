@@ -31,3 +31,8 @@ tools/bin/relkit
 tools/bin/relkit.exe
 tools/bin/relkit-updater
 tools/bin/relkit-updater.exe
+
+# relkit install materializes scripts/host from the lock-pinned host-scripts zip (ADR 0017);
+# the tree is a runtime copy verified by hostScriptsSha256, never committed.
+scripts/host/
+
