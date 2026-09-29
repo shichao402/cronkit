@@ -2,6 +2,9 @@
 // 版本号唯一来源是仓库根的 VERSION.json（relkit 管理，用 `relkit version set|bump` 改）。
 // package.json.version 与 src/generated/version.ts 都是本脚本的构建期产物，禁止手改。
 //
+// relkit.json `version.syncScript` 指向本脚本：`relkit version set|bump` 写完
+// VERSION.json 后自动执行，无需人工记得（cronkit#1 修复方案 A）。
+//
 // 用法：
 //   node scripts/sync-version.mjs          写入并在有变化时打印
 //   node scripts/sync-version.mjs --check  只校验，不一致则退出码 1（给 CI 用）

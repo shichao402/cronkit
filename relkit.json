@@ -1,5 +1,8 @@
 {
   "product": "cronkit",
+  "version": {
+    "syncScript": "scripts/sync-version.mjs"
+  },
   "sidecar": {
     "packScript": "scripts/package-versioned.mjs"
   },

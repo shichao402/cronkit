@@ -10,12 +10,21 @@
  */
 
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const { version } = JSON.parse(readFileSync(path.join(root, "VERSION.json"), "utf8"));
+
+// 防旧 manifest 静默复用（cronkit#1 场景 C）：进 dist 之前先清掉上一轮
+// release-artifacts.json。若后续 dist 失败，staging 拿不到 manifest 直接
+// 报错，绝不会拿旧版本号对应关系继续走。
+const staleManifest = path.join(root, "dist", "release-artifacts.json");
+if (existsSync(staleManifest)) {
+  rmSync(staleManifest);
+  console.log(`release manifest: removed stale ${path.relative(root, staleManifest)}`);
+}
 
 const npmCommand =
   process.platform === "win32"
