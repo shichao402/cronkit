@@ -2,7 +2,11 @@
  * relkit `ci release` 的唯一打包入口。
  *
  * `npm run dist` 产出首次安装包、内部更新 payload 和供人工下载的 zip；
- * 本脚本随后写出 relkit.release-artifacts/1 清单，由 host 脚本统一 stage。
+ * 本脚本随后写出 relkit.release-artifacts/2 清单（结构化 selectorGroups，
+ * selectors 为对象 map，无字符串解析），由 `relkit ci release` 统一 stage。
+ *
+ * cronkit 是单组产物（win-x64 installer + payload + ci-only archive），
+ * /2 形状下即一个 selectorGroup，保持「形状即真实」。
  */
 
 import { execFileSync } from "node:child_process";
@@ -33,18 +37,28 @@ if (!existsSync(path.join(root, relativePayload))) {
   throw new Error(`缺少内部更新 payload：${relativePayload}`);
 }
 
+const selectors = { os: "windows", arch: "x64" };
+
 const manifest = {
-  schema: "relkit.release-artifacts/1",
+  schema: "relkit.release-artifacts/2",
   version,
-  install: {
-    path: relativeSetup,
-    kind: "installer",
-    selectors: "os=windows,arch=x64",
-  },
-  payload: {
-    path: relativePayload,
-    selectors: "os=windows,arch=x64",
-  },
+  selectorGroups: [
+    {
+      selectors,
+      install: {
+        path: relativeSetup,
+        kind: "installer",
+        filename: `cronkit-${version}-win-x64-setup.exe`,
+      },
+      payloads: [
+        {
+          path: relativePayload,
+          filename: `cronkit-${version}-win-x64-payload.zip`,
+          selectors,
+        },
+      ],
+    },
+  ],
   archives: [{ path: relativeZip, role: "ci-only" }],
 };
 
