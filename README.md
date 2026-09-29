@@ -15,7 +15,7 @@ npm start
 `npm install` 前需要 lock 钉住的 bindings：
 
 ```bat
-go run github.com/shichao402/relkit/cmd/relkit@v0.5.7 install
+go run github.com/shichao402/relkit/cmd/relkit@v0.5.9 install
 npm install
 npm start
 ```

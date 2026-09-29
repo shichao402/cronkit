@@ -10,7 +10,7 @@
     "start": "electron-vite dev",
     "dev": "electron-vite dev",
     "preinstall": "node scripts/ensure-relkit-bindings.mjs",
-    "ensure-relkit": "go run github.com/shichao402/relkit/cmd/relkit@v0.5.7 install",
+    "ensure-relkit": "go run github.com/shichao402/relkit/cmd/relkit@v0.5.9 install",
     "sync-version": "node scripts/sync-version.mjs",
     "check-version": "node scripts/sync-version.mjs --check",
     "prebuild": "node scripts/sync-version.mjs",
