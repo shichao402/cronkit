@@ -241,25 +241,42 @@ build + stage，不持签名私钥或 COS 凭据，也不直接执行生产 publ
 接入点：`prebuild` 钩子 + `dist` 脚本，另有 `npm run check-version` 供 CI 校验不一致即失败。
 `src/generated/version.ts` 已入库（编译期常量需要被 tsc 看见），但**由脚本生成，禁止手改**。
 
-### 2.5 跨实现闭环冒烟脚本已固化
+### 2.5 跨实现闭环冒烟脚本已固化（双形态）
 
 [`scripts/relkit-smoke.mjs`](../../scripts/relkit-smoke.mjs)：起一个本机静态 HTTP（支持 Range），
-把 `relkit publish` 真实产出的 v2 protobuf 发布树喂给 `rup-client`，跑 8 组 13 项断言。
+把发布产出的 v2 protobuf 发布树喂给 `relkit-updater` sidecar，跑 8 组 14 项断言。
+签名 keyId 从 `directory/cronkit.pb` 的 Envelope 自动提取，不再硬编码。
+
+两种形态，显式声明（`[mode]` 参数），互不等价、无隐式回退：
 
 ```powershell
-# 前置：某目录已用 local 后端 publish + directory set，且 baseUrl 端口与下面一致
-node scripts/relkit-smoke.mjs <publishDir> <publicKeyBase64> [port]
+# 形态一：directory-only（默认）——本地只伺服 directory 层，
+# index/manifest/产物全走线上 serve（真链路端到端验证）。
+# 本地端口可任选；断言本地收到 0 个 Range 请求（产物下载在远端）。
+node scripts/relkit-smoke.mjs <publishDir> <publicKeyBase64> [port] directory-only
+
+# 形态二：full-tree——本地伺服完整产物树（directory/index/manifest/artifact
+# 全在本地，URL 指向 127.0.0.1:<port>）。硬断言本地收到 >= 1 个 Range 请求：
+# 这是「分段续传路径被执行」的唯一本地证据点。
+# publishDir 须由 relkit CLI + 本地 relkit-store 以 baseUrl=http://127.0.0.1:<port>
+# 产出（keygen 演练密钥 → stage → publish → directory set），流程见脚本头注释。
+node scripts/relkit-smoke.mjs <publishDir> <publicKeyBase64> <port> full-tree
 ```
 
-`port` 必须与发布时 `baseUrl` 的端口逐字一致。协议禁止客户端自行拼接 URL（SPEC §1.1），
-index / manifest / artifact 的地址都来自上一跳签名文档；端口不符会表现为 `check-failed`，
-那是配置不一致而非 SDK 故障——固化脚本时实测踩过一次，已写进脚本头注释。
+`port` 约束按形态区分：full-tree 必须与发布时 baseUrl 逐字一致（URL 已固化进
+签名文档，SPEC §1.1 禁止客户端拼 URL，端口不符表现为 check-failed）；directory-only
+本地端口可任选。协议禁止客户端自行拼接 URL——固化脚本时实测踩过一次，已写进脚本头注释。
 
-当前结果：
+日常推荐：发布演练后跑 directory-only（真链路）；Range 断言硬化回归用 full-tree
+（本地造树，产出流程见脚本头注释，产物树不入库）。
+
+当前结果（两形态均 15 项断言，2026-09-29 实测）：
 
 ```text
 1. fresh install sees the release          PASS x3
-2. download passes size + sha256           PASS x4（含服务端确认收到 Range 请求）
+2. download passes size + sha256           PASS x3（含 Range 断言：
+   full-tree: local server saw >= 1 Range request
+   directory-only: local server saw 0 Range request）
 3. already-current client is up to date    PASS
 4. wrong selectors find no artifact        PASS
 5. wrong trusted key is rejected           PASS
