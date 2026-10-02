@@ -25,6 +25,7 @@
     "dev"
   ],
   "codeStrategy": "version-build",
+  "retainVersions": 1,
   "backends": {
     "cos": {
       "type": "s3-compatible",
