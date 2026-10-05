@@ -38,9 +38,10 @@ permissions:
   contents: read
 
 # relkit 舰队统一版本（P1 原则）：全 workflow 单一版本引用，re-pin 只改这一行。
-# 取值必须与 scripts/relkit.lock.json 的 source.version 一致。
+# lock 是 follow-latest 形态（P4）：此值只表达 bootstrap floor——认识
+# latest 形态的最低 CLI 版本，跟随目标由解析链给出（lock 声明 latest）。
 env:
-  RELKIT_REF: v0.5.17
+  RELKIT_REF: v0.5.20
 
 jobs:
   release:

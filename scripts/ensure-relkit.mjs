@@ -35,7 +35,7 @@ if (!version) {
 const isLatest = String(version).trim().toLowerCase() === "latest" && String(release).trim().toLowerCase() === "latest";
 
 const ref = process.env.RELKIT_REF && process.env.RELKIT_REF !== "" ? process.env.RELKIT_REF : version;
-if (ref !== version) {
+if (!isLatest && ref !== version) {
   console.error(
     `RELKIT_REF=${ref} 与 lock 钉定 ${version} 不一致（舰队必须同版本）。` +
       "\n要么改 lock：go run github.com/shichao402/relkit/cmd/relkit@" + ref + " upgrade " + ref +
@@ -43,6 +43,8 @@ if (ref !== version) {
   );
   process.exit(1);
 }
+// latest 形态不校验 REF：RELKIT_REF 此时只表达 bootstrap floor（认识
+// latest 形态的下限版本），跟随目标永远由解析链给出，不存在「钉定」。
 
 if (isLatest) {
   // follow-latest form (P4): the lock expresses intent, not a version.
@@ -61,7 +63,7 @@ if (isLatest) {
   // the switch), then let the placed CLI own all future resolutions.
   const boot = spawnSync(
     "go",
-    ["run", "github.com/shichao402/relkit/cmd/relkit@v0.5.19", "install"],
+    ["run", "github.com/shichao402/relkit/cmd/relkit@v0.5.20", "install"],
     { stdio: "inherit", cwd: root },
   );
   process.exit(boot.status ?? 1);
