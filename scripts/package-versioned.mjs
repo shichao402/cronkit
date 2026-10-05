@@ -51,7 +51,7 @@ mkdirSync(toolDir, { recursive: true });
 const launcher = path.join(toolDir, "WorkspaceOrchestrator.exe");
 const sidecar = path.join(root, "tools", "bin", "relkit-updater.exe");
 if (!existsSync(sidecar)) {
-  throw new Error("缺少 tools/bin/relkit-updater.exe；先运行 go run github.com/shichao402/relkit/cmd/relkit@v0.5.9 install");
+throw new Error("缺少 tools/bin/relkit-updater.exe；先运行 npm run ensure-relkit");
 }
 
 // 目标平台写死为 Windows x64 而不是跟随宿主：CNB 官方构建节点只有 Linux Docker，

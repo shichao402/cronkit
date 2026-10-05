@@ -70,7 +70,7 @@ const mode = rawMode ?? "directory-only";
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const sidecar = join(root, "tools", "bin", process.platform === "win32" ? "relkit-updater.exe" : "relkit-updater");
 if (!existsSync(sidecar)) {
-  console.error("missing tools/bin/relkit-updater; run go run github.com/shichao402/relkit/cmd/relkit@v0.5.9 install");
+console.error("missing tools/bin/relkit-updater; run npm run ensure-relkit");
   process.exit(1);
 }
 

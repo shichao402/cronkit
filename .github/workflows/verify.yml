@@ -16,6 +16,10 @@ concurrency:
   group: verify-${{ github.ref }}
   cancel-in-progress: true
 
+# relkit 舰队统一版本（P1 原则）：与 release.yml 的 RELKIT_REF 保持一致。
+env:
+  RELKIT_REF: v0.5.17
+
 jobs:
   verify:
     runs-on: windows-latest
@@ -36,7 +40,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          go run github.com/shichao402/relkit/cmd/relkit@v0.5.11 install
+          go run github.com/shichao402/relkit/cmd/relkit@$RELKIT_REF install
           npm ci
 
       - name: Checks

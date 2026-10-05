@@ -12,7 +12,7 @@ const bindings = path.join(root, "third_party", "relkit", "bindings", "ts", "pac
 if (!existsSync(bindings)) {
   console.error(
     "缺少 lock 钉住的 @relkit/updater-bindings。先运行：\n" +
-      "  go run github.com/shichao402/relkit/cmd/relkit@v0.5.9 install",
+      "  npm run ensure-relkit",
   );
   process.exit(1);
 }

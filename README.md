@@ -15,10 +15,12 @@ npm start
 `npm install` 前需要 lock 钉住的 bindings：
 
 ```bat
-go run github.com/shichao402/relkit/cmd/relkit@v0.5.9 install
+npm run ensure-relkit
 npm install
 npm start
 ```
+
+relkit 版本单一事实源是 `scripts/relkit.lock.json`（当前钉 `v0.5.17`，与全舰队一致）；升级用 `go run github.com/shichao402/relkit/cmd/relkit@v0.5.17 upgrade v0.5.18` 这类命令整体重写 lock。
 
 首次启动会在 `%APPDATA%\cronkit\config.yaml` 写入一份探测到的本机配置（v2）。若本机还有旧目录 `%APPDATA%\workspace-orchestrator`，会把配置、状态、日志和 toolset 迁过去。打开旧 v1 配置会在内存中迁移预览，**点保存**后才写成 v2。默认**不启用自动调度**，避免未经确认就 `svn update`。
 
