@@ -30,8 +30,14 @@ on:
           - stable
         default: dev
 
+# 全局串行（2026-10-06 stable 三连发实证改）：per-ref 分组会让不同 tag
+# 真并行跑，完成顺序随机（+29 先注册、+28 后到被时序门禁拒绝）。改为与
+# Dec 同形态的全局单组：同仓发版严格先来后到，一次只跑一个，后面排队
+# 等待（cancel-in-progress: false 不打断跑着的）。代价是连发时总耗时
+# 叠加，属可接受；GitHub pending 单槽丢中间车是平台硬规则，触发端控制
+# 节奏（上一发完成再推下一发）可完全规避。
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 permissions:
