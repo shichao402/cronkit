@@ -109,7 +109,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-        run: go run github.com/shichao402/relkit/cmd/relkit@$RELKIT_REF install
+          go run github.com/shichao402/relkit/cmd/relkit@$RELKIT_REF install
           npm ci
 
       - name: Checks
