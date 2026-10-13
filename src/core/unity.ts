@@ -122,6 +122,9 @@ export async function warmupUnity(options: {
     options.projectPath,
     "-logFile",
     options.logFile,
+    // 无人值守预热不向共享 Cache Server 上传，避免污染团队缓存
+    "-cacheServerEnableUpload",
+    "false",
   ];
   if (options.nographics) {
     args.push("-nographics");
