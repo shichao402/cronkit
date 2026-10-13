@@ -1,5 +1,8 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { parseTasklistCsv } from "../src/core/occupants";
+import { isUnityLockHeld, parseTasklistCsv } from "../src/core/occupants";
 
 describe("parseTasklistCsv", () => {
   it("picks Unity editor family and ignores unrelated processes", () => {
@@ -19,5 +22,23 @@ describe("parseTasklistCsv", () => {
 
   it("skips malformed rows", () => {
     expect(parseTasklistCsv("INFO: No tasks are running which match the specified criteria.")).toEqual([]);
+  });
+});
+
+describe("isUnityLockHeld", () => {
+  it("treats missing lock as not held", () => {
+    expect(isUnityLockHeld(path.join(os.tmpdir(), "cronkit-no-such-lock", "UnityLockfile"))).toBe(false);
+  });
+
+  it("treats openable leftover lock as stale, not held (win32)", () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), "cronkit-lock-"));
+    try {
+      const lockFile = path.join(dir, "UnityLockfile");
+      writeFileSync(lockFile, "", "utf8");
+      const expected = process.platform === "win32" ? false : true;
+      expect(isUnityLockHeld(lockFile)).toBe(expected);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

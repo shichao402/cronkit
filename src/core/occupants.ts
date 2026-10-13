@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, mkdtempSync, openSync, rmSync, unlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -240,6 +240,26 @@ async function scanReleasable(
   }
   const unity = await listUnityProcessesByName(abortSignal);
   return filterReleasable([...occupants, ...unity]);
+}
+
+/**
+ * Windows 上 Unity 以独占句柄持有 UnityLockfile：
+ * 能独占打开 = 异常退出残留的死锁文件（不算占用）；
+ * IOException = 编辑器真在用。非 Windows 无独占语义，保守视为占用。
+ */
+export function isUnityLockHeld(lockFile: string): boolean {
+  if (!existsSync(lockFile)) {
+    return false;
+  }
+  if (process.platform !== "win32") {
+    return true;
+  }
+  try {
+    closeSync(openSync(lockFile, "r+"));
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 export function unityLockFiles(workspaceRoot: string): string[] {

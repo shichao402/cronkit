@@ -10,7 +10,7 @@ import {
 } from "./config";
 import { listUnityEditors, readProjectVersion } from "./unity";
 import { probeQuitIdle } from "./idle-quit";
-import { filterReleasable, listOccupantsSync } from "./occupants";
+import { filterReleasable, isUnityLockHeld, listOccupantsSync } from "./occupants";
 import {
   parseSvnStatusXml,
   resolveWriteTargets,
@@ -105,8 +105,8 @@ function probeInvocation(
       const editors = listUnityEditors();
       const matched = editors.find((item) => item.version === version);
       const lockFile = path.join(cwd, "Temp", "UnityLockfile");
-      if (existsSync(lockFile)) {
-        return { type, summary, ok: false, detail: `Unity ${version} 项目锁存在` };
+      if (isUnityLockHeld(lockFile)) {
+        return { type, summary, ok: false, detail: `Unity ${version} 项目锁被占用（编辑器在用）` };
       }
       if (!matched) {
         return {

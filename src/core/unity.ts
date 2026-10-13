@@ -1,7 +1,8 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { runCommand } from "./exec";
+import { isUnityLockHeld } from "./occupants";
 
 export type UnityEditor = { version: string; exe: string };
 
@@ -100,8 +101,16 @@ export async function warmupUnity(options: {
     throw new Error(`工程不存在: ${options.projectPath}`);
   }
   const lockFile = path.join(options.projectPath, "Temp", "UnityLockfile");
+  if (isUnityLockHeld(lockFile)) {
+    throw new Error("Unity 正在使用该项目（Temp/UnityLockfile 被占用），预热前未能释放已打开的 Unity");
+  }
   if (existsSync(lockFile)) {
-    throw new Error("项目锁仍在（Temp/UnityLockfile），预热前未能释放已打开的 Unity");
+    // 独占测试通过 = 异常退出残留的死锁文件，清掉继续
+    try {
+      unlinkSync(lockFile);
+    } catch {
+      // 清理失败不阻塞：Unity 启动时会自行处理残留锁
+    }
   }
 
   const version = readProjectVersion(options.projectPath);
