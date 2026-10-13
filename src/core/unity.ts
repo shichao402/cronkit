@@ -1,8 +1,115 @@
-import { existsSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
+import { closeSync, existsSync, openSync, readFileSync, readdirSync, readSync, statSync, unlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import path from "node:path";
 import { runCommand } from "./exec";
 import { isUnityLockHeld } from "./occupants";
+
+/** Unity 日志里的告警关键词：错误、异常、失败（小写匹配）。 */
+const UNITY_WARN_KEYWORDS = ["error", "exception", "failed"];
+
+/** 日志跟随读出的内容按行拆开，末尾不完整行留到下个采样。 */
+function splitCompleteLines(buffer: string): { lines: string[]; rest: string } {
+  const parts = buffer.split(/\r?\n/);
+  const rest = parts.pop() ?? "";
+  return { lines: parts, rest };
+}
+
+export type UnityLogTail = {
+  stop: () => void;
+  warnings: () => string[];
+  /** 单测用：立即采样一次，不等心跳周期。 */
+  tickForTest: () => void;
+};
+
+/**
+ * 跟随 Unity 的 -logFile 做增量读取：
+ * - 每 20s 把最近一行日志作为心跳推给 onProgress（UI 实时可见导入没卡死）；
+ * - 含 error/exception/failed 的行视为告警，最多保留 40 条（去重）防刷屏；
+ * - 处理 BOM、日志截断重置（size 变小则从头读）。
+ * 日志文件由 Unity 启动后才创建，采样间隔内不存在属正常。
+ */
+export function followUnityLog(
+  logFile: string,
+  onProgress: (line: string) => void,
+): UnityLogTail {
+  let stopped = false;
+  let offset = 0;
+  let partial = "";
+  const warnLines: string[] = [];
+  const warnSeen = new Set<string>();
+  const HEARTBEAT_MS = 20_000;
+  const MAX_WARNINGS = 40;
+
+  const sample = (): void => {
+    if (stopped) {
+      return;
+    }
+    let size = 0;
+    try {
+      size = statSync(logFile).size;
+    } catch {
+      return; // 尚未创建
+    }
+    let text = "";
+    if (size > offset) {
+      try {
+        const fd = openSync(logFile, "r");
+        try {
+          const chunk = Buffer.alloc(size - offset);
+          readSync(fd, chunk, 0, chunk.length, offset);
+          text = chunk.toString("utf8");
+        } finally {
+          closeSync(fd);
+        }
+      } catch {
+        return;
+      }
+      if (offset === 0) {
+        text = text.replace(/^\uFEFF/, "");
+      }
+      offset = size;
+    } else if (size < offset) {
+      // 日志被截断重置（Unity 崩溃重启场景），从头读
+      offset = 0;
+      partial = "";
+      return;
+    } else {
+      return;
+    }
+    const { lines, rest } = splitCompleteLines(partial + text);
+    partial = rest;
+    let lastLine = "";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) {
+        continue;
+      }
+      lastLine = trimmed;
+      const lower = trimmed.toLowerCase();
+      if (UNITY_WARN_KEYWORDS.some((kw) => lower.includes(kw))) {
+        if (warnLines.length < MAX_WARNINGS && !warnSeen.has(trimmed)) {
+          warnSeen.add(trimmed);
+          warnLines.push(trimmed);
+        }
+      }
+    }
+    if (lastLine) {
+      onProgress(lastLine);
+    }
+  };
+
+  const timer = setInterval(sample, HEARTBEAT_MS);
+  timer.unref?.();
+
+  return {
+    stop: () => {
+      stopped = true;
+      clearInterval(timer);
+    },
+    warnings: () => warnLines,
+    tickForTest: sample,
+  };
+}
 
 export type UnityEditor = { version: string; exe: string };
 
@@ -96,6 +203,7 @@ export async function warmupUnity(options: {
   nographics?: boolean;
   executeMethod?: string | null;
   lowPriority?: boolean;
+  onProgress?: (line: string) => void;
 }): Promise<{ detail: string; code: number | null }> {
   if (!existsSync(options.projectPath)) {
     throw new Error(`工程不存在: ${options.projectPath}`);
@@ -133,25 +241,33 @@ export async function warmupUnity(options: {
     args.push("-executeMethod", options.executeMethod);
   }
 
-  const result = await runCommand({
-    command: editor.exe,
-    args,
-    cwd: options.projectPath,
-    timeoutMs: options.timeoutMs,
-    logFile: `${options.logFile}.spawn.log`,
-    abortSignal: options.abortSignal,
-    lowPriority: options.lowPriority ?? true,
-  }).done;
+  const tail = options.onProgress ? followUnityLog(options.logFile, options.onProgress) : undefined;
+  try {
+    const result = await runCommand({
+      command: editor.exe,
+      args,
+      cwd: options.projectPath,
+      timeoutMs: options.timeoutMs,
+      logFile: `${options.logFile}.spawn.log`,
+      abortSignal: options.abortSignal,
+      lowPriority: options.lowPriority ?? true,
+    }).done;
 
-  if (result.cancelled) {
-    throw new Error(result.timedOut ? "Unity 预热超时" : "已取消");
+    if (result.cancelled) {
+      throw new Error(result.timedOut ? "Unity 预热超时" : "已取消");
+    }
+    if (result.code !== 0) {
+      throw new Error(tailText(result.stderr || result.stdout) || `Unity 退出码 ${result.code}`);
+    }
+    const warnings = tail?.warnings() ?? [];
+    const warnNote =
+      warnings.length > 0 ? `（日志中有 ${warnings.length} 条告警）` : "";
+    return { detail: `Unity ${version} 预热完成${warnNote}`, code: result.code };
+  } finally {
+    tail?.stop();
   }
-  if (result.code !== 0) {
-    throw new Error(tail(result.stderr || result.stdout) || `Unity 退出码 ${result.code}`);
-  }
-  return { detail: `Unity ${version} 预热完成`, code: result.code };
 }
 
-function tail(text: string): string {
+function tailText(text: string): string {
   return text.trim().split(/\r?\n/).filter(Boolean).slice(-12).join("\n");
 }

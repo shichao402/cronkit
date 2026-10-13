@@ -253,6 +253,7 @@ export async function runBuiltinTool(
         executeMethod:
           typeof params.executeMethod === "string" ? params.executeMethod : null,
         lowPriority: true,
+        onProgress: ctx.onProgress,
       });
     case "quit-idle":
       return quitIdleApps(

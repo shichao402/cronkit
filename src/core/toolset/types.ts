@@ -54,6 +54,8 @@ export type ToolRunContext = {
   resultJsonPath?: string;
   localDate?: string;
   workspacePath: string;
+  /** 长任务运行中的实时进度（如 Unity 导入日志心跳）。仅 builtin 工具链路使用。 */
+  onProgress?: (line: string) => void;
 };
 
 export type ToolRunResult = {

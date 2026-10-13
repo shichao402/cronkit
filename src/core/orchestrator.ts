@@ -737,6 +737,16 @@ export class Orchestrator extends TypedEmitter {
         resultJsonPath,
         localDate: job.run.localDate,
         workspacePath: job.workspace.path,
+        onProgress: (line) => {
+          if (!line.trim()) {
+            return;
+          }
+          // 心跳行限 200 字符，避免超长导入行撑爆 snapshot
+          const text = line.trim().slice(0, 200);
+          record.outputTail = `${text}\n（运行中 ${displayTime(undefined, this.config?.timezone)}）`;
+          this.store.upsertRun(job.run, job.persistKey);
+          this.emitChange();
+        },
       },
       this.dataDir,
     );
