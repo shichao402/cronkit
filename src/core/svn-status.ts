@@ -177,6 +177,18 @@ export function isSvnLockError(text: string): boolean {
   );
 }
 
+/** svn update 输出里抓冲突路径：首列 C=文本冲突，第二列 C=树冲突。 */
+export function conflictedRelativesFromUpdateOutput(stdout: string): string[] {
+  const found: string[] = [];
+  for (const line of stdout.split(/\r?\n/)) {
+    const match = /^(C\s{2,}|\s+C\s{2,})(.+)$/.exec(line);
+    if (match) {
+      found.push(match[2].trim());
+    }
+  }
+  return [...new Set(found)];
+}
+
 export function pathsFromSvnError(text: string): string[] {
   const found = new Set<string>();
   const quoted = /'((?:[A-Za-z]:)?[^']*[\\/][^']+)'|"((?:[A-Za-z]:)?[^"]*[\\/][^"]+)"/g;

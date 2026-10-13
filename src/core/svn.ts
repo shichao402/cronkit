@@ -3,15 +3,17 @@ import path from "node:path";
 import { runCommand } from "./exec";
 import { prepareExclusiveAccess } from "./occupants";
 import {
+  conflictedRelativesFromUpdateOutput,
   isSvnLockError,
   parseSvnStatusXml,
   pathsFromSvnError,
+  relativeFromStatusPath,
   resolveWriteTargets,
   revertWriteRelatives,
   updateWriteRelatives,
 } from "./svn-status";
 
-export type ConflictPolicy = "fail" | "revert";
+export type ConflictPolicy = "fail" | "postpone" | "revert";
 
 export async function svnCheckAndUpdate(options: {
   workingCopy: string;
@@ -79,6 +81,13 @@ export async function svnCheckAndUpdate(options: {
 
   const problem = findSvnProblem(status.stdout);
   if (problem) {
+    if (policy === "postpone") {
+      return {
+        skipped: true,
+        detail: `${problem}，按 onConflict=postpone 保留现场挂起，处理完下轮自动继续:\n  ${conflictedRelatives(status.stdout)}`,
+        code: 0,
+      };
+    }
     if (policy !== "revert") {
       throw new Error(`${problem}。已保留现场，未自动 cleanup/revert`);
     }
@@ -97,8 +106,24 @@ export async function svnCheckAndUpdate(options: {
     return { skipped: true, detail: notes.join("；") || "按策略跳过 svn update", code: 0 };
   }
 
-  const update = await runSvn(options, ["update"], "svn update", true);
+  const update = await runSvn(
+    options,
+    ["update", "--non-interactive", "--accept", "postpone"],
+    "svn update",
+    true,
+  );
   if (update.code === 0) {
+    const conflicts = conflictedRelativesFromUpdateOutput(update.stdout);
+    if (conflicts.length > 0 && policy === "postpone") {
+      return {
+        skipped: true,
+        detail: `svn update 产生 ${conflicts.length} 个冲突，按 onConflict=postpone 保留现场挂起，处理完下轮自动继续:\n  ${conflicts.slice(0, 20).join("\n  ")}`,
+        code: 0,
+      };
+    }
+    if (conflicts.length > 0) {
+      throw new Error(`svn update 产生 ${conflicts.length} 个冲突:\n  ${conflicts.slice(0, 20).join("\n  ")}`);
+    }
     notes.push(tail(update.stdout) || "svn update 完成");
     return { skipped: false, detail: notes.join("；"), code: update.code };
   }
@@ -326,6 +351,13 @@ function shouldSkipBackup(rel: string): boolean {
     norm.includes("/Library/") ||
     norm.includes("/Temp/")
   );
+}
+
+function conflictedRelatives(statusXml: string): string {
+  const rels = parseSvnStatusXml(statusXml)
+    .filter((entry) => entry.wcItem === "conflicted")
+    .map((entry) => relativeFromStatusPath(entry.path));
+  return rels.length > 0 ? rels.slice(0, 20).join("\n  ") : "(status 未标出冲突条目)";
 }
 
 function findSvnProblem(xml: string): string | undefined {

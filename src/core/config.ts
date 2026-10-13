@@ -42,7 +42,7 @@ const svnStepSchema = z.object({
   path: z.string().optional(),
   retry: z.number().int().min(0).optional(),
   continueOnError: z.boolean().optional(),
-  onConflict: z.enum(["fail", "revert"]).default("fail"),
+  onConflict: z.enum(["fail", "postpone", "revert"]).default("fail"),
   backupOnRevert: z.boolean().default(true),
   backupDir: z.string().optional(),
 });

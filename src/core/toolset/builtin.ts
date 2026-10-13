@@ -22,7 +22,13 @@ const svnUpdate: ToolManifest = {
       default: "follow-latest",
       required: true,
     },
-    { name: "onConflict", type: "enum", enum: ["fail", "revert"], default: "fail" },
+    {
+      name: "onConflict",
+      type: "enum",
+      enum: ["fail", "postpone", "revert"],
+      default: "fail",
+      description: "fail: 冲突即失败；postpone: 保留现场挂起本轮，下轮自动继续；revert: 备份后还原",
+    },
     { name: "backupOnRevert", type: "boolean", default: true },
     { name: "backupDir", type: "string" },
     {
@@ -290,7 +296,7 @@ async function runSvnUpdate(
     logFile: ctx.logFile,
     abortSignal: ctx.abortSignal,
     skipUpdate: false,
-    onConflict: (params.onConflict as "fail" | "revert") ?? "fail",
+    onConflict: (params.onConflict as "fail" | "postpone" | "revert") ?? "fail",
     backupOnRevert: params.backupOnRevert !== false,
     backupDir: typeof params.backupDir === "string" ? params.backupDir : undefined,
     localDate: ctx.localDate,

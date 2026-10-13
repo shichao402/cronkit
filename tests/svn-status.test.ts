@@ -1,6 +1,7 @@
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
+  conflictedRelativesFromUpdateOutput,
   isSvnLockError,
   parseSvnStatusXml,
   pathsFromSvnError,
@@ -68,6 +69,36 @@ describe("svn lock errors", () => {
   it("extracts windows paths from quoted error text", () => {
     const text = `svn: E720032: Can't move 'D:\\wc\\.svn\\tmp\\svn-1' to 'D:\\wc\\Assets\\Foo.dll'`;
     expect(pathsFromSvnError(text)).toEqual(["D:\\wc\\.svn\\tmp\\svn-1", "D:\\wc\\Assets\\Foo.dll"]);
+  });
+});
+
+describe("conflictedRelativesFromUpdateOutput", () => {
+  it("captures text conflicts in first column and tree conflicts in second", () => {
+    const stdout = [
+      "Updating '.':",
+      "C    Assets/Scripts/Player.cs",
+      " C   Assets/Prefabs/Enemy.prefab",
+      "Updated to revision 42.",
+    ].join("\n");
+    expect(conflictedRelativesFromUpdateOutput(stdout)).toEqual([
+      "Assets/Scripts/Player.cs",
+      "Assets/Prefabs/Enemy.prefab",
+    ]);
+  });
+
+  it("ignores conflict-notice lines and clean output", () => {
+    const stdout = [
+      "Conflict discovered in file 'Assets/foo.txt'.",
+      "U    Assets/foo.txt",
+      "A    Assets/new.meta",
+      "Checked out revision 7.",
+    ].join("\n");
+    expect(conflictedRelativesFromUpdateOutput(stdout)).toEqual([]);
+  });
+
+  it("dedupes repeated conflict paths", () => {
+    const stdout = "C    Assets/a.cs\nC    Assets/a.cs";
+    expect(conflictedRelativesFromUpdateOutput(stdout)).toEqual(["Assets/a.cs"]);
   });
 });
 
