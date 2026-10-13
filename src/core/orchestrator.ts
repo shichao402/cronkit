@@ -32,6 +32,7 @@ import { logsDirIn, normalizePathKey } from "./paths";
 import { buildPlan, previousFire } from "./plan";
 import { Store } from "./store";
 import { addDays, displayTime, localDate, nowIso, parseTimeout } from "./time";
+import { deadlineAtFromCron } from "./plan";
 import { prepareExclusiveAccess } from "./occupants";
 import {
   KNOWN_TOOLSETS,
@@ -49,7 +50,21 @@ type Job = {
   keyedTail: string;
   abort: AbortController;
   resolve: (run: RunRecord) => void;
+  /** 本次运行的硬截止时刻（epoch ms）；无 deadline 配置时为空。 */
+  deadlineAt?: number;
+  /** 截止触发的终止原因，用于区分用户取消与窗口结束。 */
+  deadlineReason?: string;
+  /** 硬截止采样定时器句柄。 */
+  deadlineTimer?: NodeJS.Timeout;
 };
+
+/** 清掉 job 的硬截止监视器（触发或任务结束时调用）。 */
+function clearJobDeadline(job: { deadlineTimer?: NodeJS.Timeout }): void {
+  if (job.deadlineTimer) {
+    clearInterval(job.deadlineTimer);
+    job.deadlineTimer = undefined;
+  }
+}
 
 export class Orchestrator extends TypedEmitter {
   config!: AppConfig;
@@ -415,6 +430,20 @@ export class Orchestrator extends TypedEmitter {
         abort: new AbortController(),
         resolve,
       };
+      if (trigger !== "manual") {
+        const triggerTime = trigger === "schedule" ? Date.now() : Date.parse(slotKey ?? "");
+        job.deadlineAt = deadlineAtFromCron(
+          task.trigger.type === "cron" ? task.trigger.deadline : undefined,
+          this.config.timezone,
+          Number.isFinite(triggerTime) ? triggerTime : Date.now(),
+        );
+        if (job.deadlineAt !== undefined) {
+          job.deadlineReason = `硬截止 ${displayTime(
+            new Date(job.deadlineAt).toISOString(),
+            this.config.timezone,
+          )}（触发器 deadline）`;
+        }
+      }
       this.queue.push(job);
       this.jobs.set(run.runId, job);
       this.store.upsertRun(run, persistKey);
@@ -523,7 +552,27 @@ export class Orchestrator extends TypedEmitter {
     job.run.startedAt = nowIso();
     this.store.upsertRun(job.run, job.persistKey);
     this.runLog(job, `任务开始 trigger=${job.run.trigger} schedule=${job.run.scheduleId}`);
+    if (job.deadlineAt !== undefined) {
+      this.runLog(job, job.deadlineReason ?? "任务带硬截止");
+    }
     this.emitChange();
+
+    const deadlineTimer =
+      job.deadlineAt !== undefined
+        ? setInterval(() => {
+            if (Date.now() >= job.deadlineAt!) {
+              clearJobDeadline(job);
+              job.deadlineReason = `已到运行窗口硬截止 ${displayTime(
+                new Date(job.deadlineAt!).toISOString(),
+                this.config?.timezone,
+              )}，剩余步骤跳过`;
+              this.runLog(job, job.deadlineReason);
+              job.abort.abort();
+            }
+          }, 15_000)
+        : undefined;
+    deadlineTimer?.unref?.();
+    job.deadlineTimer = deadlineTimer;
 
     try {
       const invocations = job.workspace.steps.map((step) => toInvocation(step));
@@ -536,7 +585,7 @@ export class Orchestrator extends TypedEmitter {
       }
       for (let i = 0; i < job.workspace.steps.length; i += 1) {
         if (job.abort.signal.aborted) {
-          this.finish(job, "cancelled", "用户取消");
+          this.finish(job, "cancelled", job.deadlineReason ?? "用户取消");
           return;
         }
         const step = job.workspace.steps[i];
@@ -600,7 +649,7 @@ export class Orchestrator extends TypedEmitter {
         record.finishedAt = nowIso();
         if (job.abort.signal.aborted) {
           record.status = "cancelled";
-          this.finish(job, "cancelled", "用户取消");
+          this.finish(job, "cancelled", job.deadlineReason ?? "用户取消");
           return;
         }
         if (lastError) {
@@ -628,6 +677,7 @@ export class Orchestrator extends TypedEmitter {
     } catch (error) {
       this.finish(job, "failed", error instanceof Error ? error.message : String(error));
     } finally {
+      clearJobDeadline(job);
       this.pathLocks.delete(pathKey);
     }
   }

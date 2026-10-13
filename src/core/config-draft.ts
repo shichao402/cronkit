@@ -48,7 +48,7 @@ function taskToEditor(task: AppConfig["tasks"][number]): EditorTask {
     enabled: task.enabled,
     trigger:
       task.trigger.type === "cron"
-        ? { type: "cron", cron: task.trigger.cron }
+        ? { type: "cron", cron: task.trigger.cron, deadline: task.trigger.deadline }
         : { type: "manual" },
     targets: task.targets.map(targetToEditor),
   };

@@ -578,6 +578,17 @@ function TriggerEditor({
   const kind: ScheduleKind = parsed && !preferCustom ? parsed.kind : "custom";
   const outlook = trigger.type === "cron" ? scheduleOutlook(cron, timezone) : null;
   const apply = (schedule: Schedule) => onChange({ type: "cron", cron: buildCron(schedule) });
+  const setDeadline = (value: string | undefined): void => {
+    if (trigger.type !== "cron") {
+      return;
+    }
+    if (value === undefined) {
+      const { deadline: _drop, ...rest } = trigger;
+      onChange(rest);
+      return;
+    }
+    onChange({ ...trigger, deadline: value });
+  };
 
   return (
     <div className="block cfg-section">
@@ -606,8 +617,7 @@ function TriggerEditor({
           <div className="cfg-sched">
             <label className="cfg-field">
               重复
-              <select
-                value={kind}
+              <select                value={kind}
                 onChange={(e) => {
                   const next = e.target.value as ScheduleKind;
                   if (next === "custom") {
@@ -721,6 +731,35 @@ function TriggerEditor({
                 />
               </label>
             )}
+          </div>
+
+          <div className="cfg-deadline">
+            <label className="cfg-field">
+              硬截止
+              <input
+                type="checkbox"
+                checked={trigger.type === "cron" && trigger.deadline !== undefined}
+                disabled={trigger.type !== "cron"}
+                onChange={(e) => setDeadline(e.target.checked ? "08:00" : undefined)}
+              />
+            </label>
+            {trigger.type === "cron" && trigger.deadline !== undefined && (
+              <label className="cfg-field">
+                到点结束
+                <input
+                  type="time"
+                  value={trigger.deadline}
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      setDeadline(e.target.value);
+                    }
+                  }}
+                />
+              </label>
+            )}
+            <span className="form-note">
+              到该时刻仍没跑完就强制结束，剩余步骤跳过；支持跨午夜（如 22:00 触发、08:00 截止）
+            </span>
           </div>
 
           {kind === "weekly" && parsed?.kind === "weekly" && (

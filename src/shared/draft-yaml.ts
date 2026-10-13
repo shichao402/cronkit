@@ -52,7 +52,11 @@ function templateToYaml(template: StepTemplate): Record<string, unknown> {
 function taskToYaml(task: EditorTask): Record<string, unknown> {
   const trigger =
     task.trigger.type === "cron"
-      ? { type: "cron", cron: task.trigger.cron.trim() }
+      ? {
+          type: "cron",
+          cron: task.trigger.cron.trim(),
+          ...(task.trigger.deadline ? { deadline: task.trigger.deadline } : {}),
+        }
       : { type: "manual" };
   return {
     id: task.id.trim(),

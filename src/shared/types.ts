@@ -150,7 +150,7 @@ export type EditorTarget = {
 
 
 export type EditorTrigger =
-  | { type: "cron"; cron: string }
+  | { type: "cron"; cron: string; deadline?: string }
   | { type: "manual" };
 
 export type EditorTask = {

@@ -165,6 +165,8 @@ const triggerSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("cron"),
     cron: z.string().min(1),
+    /** 运行硬截止（HH:mm，配置时区）。跨午夜自动取当天或次日中较早的一刻；到点强制结束剩余步骤。 */
+    deadline: hhmm.optional(),
   }),
   z.object({
     type: z.literal("manual"),
