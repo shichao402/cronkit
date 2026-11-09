@@ -25,4 +25,5 @@ Architecture Decision Record。一条 ADR 只记**一个**决定：当时面对�
 | [0010](0010-relkit-node-sdk-and-onboard.md) | 接入 relkit 自动更新：自研 Node SDK + 按 RUP 标准开箱 | superseded by 0012 |
 | [0011](0011-versioned-dir-apply.md) | Windows 更新采用稳定 launcher + versionedDir | accepted |
 | [0012](0012-relkit-updater-sidecar.md) | 自动更新经单一 relkit-updater sidecar | accepted |
+| [0013](0013-retire-into-novoard-agent.md) | 能力并入 novoard-agent 后退役 | accepted |
 

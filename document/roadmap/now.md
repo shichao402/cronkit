@@ -2,6 +2,10 @@
 
 只记还没做完、或明确不做的事。做成了就删条目，需要留「为什么」的搬到 ADR。
 
+## 退役（ADR 0013）
+
+已冻结新功能，只修影响夜间任务的缺陷。实施见 [retire-plan.md](retire-plan.md)。下面「近期」中的仪表盘分组、接入 Agent 两条不再推进。
+
 ## 近期
 
 - 用 `npm run dist` 验证打包后的任务栏固定图标与跳转列表名称（`WorkspaceOrchestrator` / 工作目录编排器），不以 `npm start` 的固定项为准。
