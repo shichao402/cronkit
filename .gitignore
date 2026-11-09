@@ -36,3 +36,8 @@ tools/bin/relkit-updater.exe
 # the tree is a runtime copy verified by hostScriptsSha256, never committed.
 scripts/host/
 
+# Dec 本地缓存（拉下来的 assets/skills 副本），可随时重装重建
+.dec/cache/
+# With 从 Dec 同步出来的技能工作副本
+.with/
+
