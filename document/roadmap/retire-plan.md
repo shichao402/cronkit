@@ -55,6 +55,8 @@
 
 ## C3 逐个迁移（Windows 工作机）
 
+**已取消（2026-11-10）**：不做配置迁移，也不做双边并行观察。cronkit 退役后，夜间任务直接在 novoard-agent 里重新配置；C2 导出脚本保留在仓库里，需要时可以当参考，但不是必经步骤。以下原计划仅作记录。
+
 前提：novoard-agent PRD-7 全部完成，novoard-packs P1–P4 完成。
 
 每个任务按以下步骤：
@@ -73,3 +75,5 @@
 - 退出并卸载托盘，取消开机自启。
 - 停止 relkit 发版；relkit 服务器上的 cronkit 产品保留，不删除。
 - GitHub 仓库归档，README 首行注明"已由 novoard-agent + novoard-packs 接替"。
+
+执行情况（2026-11-10）：README 注明与仓库归档已完成；归档后 Release 流水线不再触发，即停止发版。Windows 工作机上的托盘卸载、取消开机自启需在那台机器上手动完成，卸载后夜间任务停止，直到在 novoard-agent 中重新配置。

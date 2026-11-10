@@ -22,3 +22,7 @@ cronkit 一个进程包办托盘界面、调度、执行和领域工具。novoar
 
 - 实施见 [retire-plan](../roadmap/retire-plan.md)。
 - 退役前 cronkit 仍是 Windows 工作机夜间任务的执行者，不能先停。
+
+## 修订（2026-11-10）
+
+第 3 条"迁一个关一个"取消：不迁移配置，cronkit 直接退役，夜间任务之后在 novoard-agent 中重新配置。代价是托盘卸载到 agent 重新配好之间夜间任务停跑，可以接受。

@@ -4,7 +4,7 @@
 
 ## 退役（ADR 0013）
 
-已冻结新功能，只修影响夜间任务的缺陷。实施见 [retire-plan.md](retire-plan.md)。
+已退役（2026-11-10），仓库归档，以下条目不再推进。剩余只有 Windows 工作机上卸载托盘、取消开机自启。实施记录见 [retire-plan.md](retire-plan.md)。
 
 ## 近期
 

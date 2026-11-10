@@ -1,3 +1,5 @@
+> 已退役：由 novoard-agent + novoard-packs 接替，本仓库已归档、不再维护。见 [ADR 0013](document/adr/0013-retire-into-novoard-agent.md)。
+
 # 工作目录编排器
 
 Windows 托盘程序：按 YAML 调度 SVN 更新、Unity 预热和本地脚本。配置以**自动化任务**为主（触发器 + 一个或多个目标目录与步骤）。
