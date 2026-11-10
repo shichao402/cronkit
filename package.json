@@ -21,6 +21,7 @@
     "cli": "tsx src/cli.ts",
     "validate": "tsx src/cli.ts validate",
     "status": "tsx src/cli.ts status",
+    "export-novoard": "tsx scripts/export-novoard-targets.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

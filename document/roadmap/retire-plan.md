@@ -8,30 +8,50 @@
 
 ## C2 导出脚本
 
-新增 `scripts/export-novoard-targets.ts`：读取 config.yaml（v2），输出 novoard-agent `targets.yaml` 片段。
+新增 `scripts/export-novoard-targets.ts`：读取 config.yaml（v1 先迁移到 v2），输出 novoard-agent `targets.yaml` 片段。
+
+用法：`npm run export-novoard -- [config.yaml] [--data-dir <dir>] [--out <file>]`。不给 config 时按托盘的默认位置查找；不给 `--out` 时打印到 stdout。存在 error 级问题时退出码为 1，找不到配置时为 64。所有问题会写进输出文件头注释，同时打印到 stderr。
 
 映射规则：
 
 | cronkit | novoard-agent |
 | --- | --- |
 | 每个 task × target | 一个 target，id 为 `<task.id>-<target.id>` |
-| task.name / target.name | title：`<task.name> · <target.name>` |
-| trigger.cron / deadline | schedule / deadline |
+| task.name / target.name | title：`<task.name> · <target.name>`；两者相同时只取一个 |
+| trigger.cron / deadline | schedule / deadline；任务停用时不导出 schedule（warning） |
 | target.oncePerDay | oncePerDay |
-| target.path | 每个 uses step 的 cwd |
+| target.path + step.path | 每个 uses step 的 cwd（按 cronkit 的规则解析） |
 | usesTemplate + vars | 展开成内联 steps |
 | builtin svn-* / git-* | `versionControl/<tool>` |
-| builtin unity-warmup / quit-idle | `general/<tool>` |
+| builtin unity-warmup / quit-idle / release-occupants | `general/<tool>` |
 | osg/<tool> | `osg/<tool>`，原样 |
-| script | script |
-| step retry | retry |
+| script | script，参数按 Windows 命令行规则加引号拼接 |
+| uses step retry / retryInterval | retry / retryInterval；超过 10 截成 10（warning） |
 | 含 remoteWrite 工具 | requiresApproval: true；删除 confirmRemoteWrite |
 | 固定字段 | expose: local，audit: summary，notify: on-failure |
+
+规则之外的处理：
+
+- 释放占用：独占工具（requiresExclusiveWorkspace）前，若 `releaseOccupants` 不为 false 且上一步不是独占步骤，插入 `general/release-occupants`，路径为 target.path。对应 cronkit 编排器在独占步骤前自动释放占用的行为。
+- timeout：agent 的 timeout 是整次运行的上限，按 Σ(步骤 timeout × 尝试次数) + 每步 1m 估算，释放占用步骤按 2m 计；非幂等工具只算 1 次尝试。
+- strategy=manual：定时任务中 strategy=manual 的 svn-update / git-pull 在 cronkit 里只在手动触发时执行，导出时直接删除（warning）；需要的话在 agent 侧另建手动 target。
+- quit-idle：cronkit 用步骤 timeout 作为等待上限，导出时补 `with.timeout`（packs 侧 quit-idle 新增了这个可选参数）。
+- 参数：null、对象型参数丢弃（warning）；rawArgs 丢弃（warning）。
+- script 的 retry：agent 的 script 步骤不支持 retry，丢弃（warning）。
+- continueOnError：agent 任何一步失败就停止；非最后一步带 continueOnError 时给 warning，需人工决定是拆 target 还是接受行为变化。
+- 外部 toolset 找不到 manifest：warning，按原样导出；builtin 工具没有对应包：error。没有可导出步骤的 target：error，不导出。
+- 时区：文件头注明 cronkit 的时区，agent.json 中 `schedule.timezone` 需设为同一时区。
 
 验收：
 
 - 对 `config.demo.yaml` 导出的结果通过 novoard-agent schema 校验。
 - 对 Windows 工作机上的真实 config.yaml 导出后人工核对。
+
+### 实现偏差（2026-11-10）
+
+- 映射表比原计划多了几项：release-occupants 归 general；title 在 task 与 target 同名时只取一个；script 步骤的 retry 丢弃。
+- novoard-packs 的 quit-idle 新增可选参数 `timeout`，导出时由步骤 timeout 填入，否则迁移后等待上限会变成 24 小时。
+- 验收：demo 导出 6 个 target、0 条问题，通过 agent 的 targets schema 与 uses 校验（novoard-packs 加 OSGToolset）。真实 config 的人工核对随 C3 在 Windows 工作机上做。
 
 ## C3 逐个迁移（Windows 工作机）
 
